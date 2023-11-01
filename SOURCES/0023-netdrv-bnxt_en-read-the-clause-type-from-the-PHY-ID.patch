@@ -1,0 +1,52 @@
+From 046588ccc17d792129f8d5f2ad717a76134f9581 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:38 -0400
+Subject: [PATCH 23/96] [netdrv] bnxt_en: read the clause type from the PHY ID
+
+Message-id: <ac05bd9d0f00f175e82e6c76fd0b7566472c377b.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276443
+O-Subject: [RHEL-8.2 PATCH 16/78] bnxt_en: read the clause type from the PHY ID
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Currently driver hard code Clause 45 based on speed supported by the
+PHY. Instead read the clause type from the PHY ID provided as input
+to the mdio ioctl.
+
+Fixes: 0ca12be99667 ("bnxt_en: Add support for mdio read/write to external PHY")
+Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 2730214ddb889c54d5f6a734e2fe584c295cbd9b)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:13.240535824 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:13.384534503 +0100
+@@ -8713,7 +8713,7 @@
+ 	req.port_id = cpu_to_le16(bp->pf.port_id);
+ 	req.phy_addr = phy_addr;
+ 	req.reg_addr = cpu_to_le16(reg & 0x1f);
+-	if (bp->link_info.support_speeds & BNXT_LINK_SPEED_MSK_10GB) {
++	if (mdio_phy_id_is_c45(phy_addr)) {
+ 		req.cl45_mdio = 1;
+ 		req.phy_addr = mdio_phy_id_prtad(phy_addr);
+ 		req.dev_addr = mdio_phy_id_devad(phy_addr);
+@@ -8740,7 +8740,7 @@
+ 	req.port_id = cpu_to_le16(bp->pf.port_id);
+ 	req.phy_addr = phy_addr;
+ 	req.reg_addr = cpu_to_le16(reg & 0x1f);
+-	if (bp->link_info.support_speeds & BNXT_LINK_SPEED_MSK_10GB) {
++	if (mdio_phy_id_is_c45(phy_addr)) {
+ 		req.cl45_mdio = 1;
+ 		req.phy_addr = mdio_phy_id_prtad(phy_addr);
+ 		req.dev_addr = mdio_phy_id_devad(phy_addr);

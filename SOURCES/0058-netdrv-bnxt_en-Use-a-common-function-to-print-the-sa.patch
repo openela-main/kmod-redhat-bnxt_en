@@ -1,0 +1,74 @@
+From a63606600d431959dd1a271a8b91d1c6b6e305fd Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:13 -0400
+Subject: [PATCH 58/96] [netdrv] bnxt_en: Use a common function to print the
+ same ethtool -f error message
+
+Message-id: <29dc7b5858ac5320c7eac0eeff93abd135cb6e2e.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276476
+O-Subject: [RHEL-8.2 PATCH 51/78] bnxt_en: Use a common function to print the same ethtool -f error message.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+The same message is printed 3 times in the code, so use a common function
+to do that.
+
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit b3b0ddd07e63d564a3d5500938913805d06a1682)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c | 14 ++++++++------
+ 1 file changed, 8 insertions(+), 6 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:17.286498686 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:18.049491682 +0100
+@@ -1699,6 +1699,11 @@
+ 	return bp->link_info.link_up;
+ }
+ 
++static void bnxt_print_admin_err(struct bnxt *bp)
++{
++	netdev_info(bp->dev, "PF does not have admin privileges to flash or reset the device\n");
++}
++
+ static int bnxt_find_nvram_item(struct net_device *dev, u16 type, u16 ordinal,
+ 				u16 ext, u16 *index, u32 *item_length,
+ 				u32 *data_length);
+@@ -1739,8 +1744,7 @@
+ 	dma_free_coherent(&bp->pdev->dev, data_len, kmem, dma_handle);
+ 
+ 	if (rc == HWRM_ERR_CODE_RESOURCE_ACCESS_DENIED) {
+-		netdev_info(dev,
+-			    "PF does not have admin privileges to flash the device\n");
++		bnxt_print_admin_err(bp);
+ 		rc = -EACCES;
+ 	} else if (rc) {
+ 		rc = -EIO;
+@@ -1795,8 +1799,7 @@
+ 
+ 	rc = hwrm_send_message(bp, &req, sizeof(req), HWRM_CMD_TIMEOUT);
+ 	if (rc == HWRM_ERR_CODE_RESOURCE_ACCESS_DENIED) {
+-		netdev_info(dev,
+-			    "PF does not have admin privileges to reset the device\n");
++		bnxt_print_admin_err(bp);
+ 		rc = -EACCES;
+ 	} else if (rc) {
+ 		rc = -EIO;
+@@ -2096,8 +2099,7 @@
+ 	mutex_unlock(&bp->hwrm_cmd_lock);
+ err_exit:
+ 	if (hwrm_err == HWRM_ERR_CODE_RESOURCE_ACCESS_DENIED) {
+-		netdev_info(dev,
+-			    "PF does not have admin privileges to flash the device\n");
++		bnxt_print_admin_err(bp);
+ 		rc = -EACCES;
+ 	} else if (hwrm_err) {
+ 		rc = -EOPNOTSUPP;

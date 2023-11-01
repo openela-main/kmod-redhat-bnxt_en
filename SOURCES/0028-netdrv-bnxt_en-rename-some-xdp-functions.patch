@@ -1,0 +1,84 @@
+From 57e81b54c97b6f765ab3e0d5b2943ba40a018663 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:43 -0400
+Subject: [PATCH 28/96] [netdrv] bnxt_en: rename some xdp functions
+
+Message-id: <eed0d404784ad5af34e9f915279f4fa5e2afce8e.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276444
+O-Subject: [RHEL-8.2 PATCH 21/78] bnxt_en: rename some xdp functions
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Renaming bnxt_xmit_xdp to __bnxt_xmit_xdp to get ready for XDP_REDIRECT
+support and reduce confusion/namespace collision.
+
+Signed-off-by: Andy Gospodarek <gospo@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 52c0609258658ff35b85c654c568a50abd602ac6)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c | 2 +-
+ drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.c     | 8 ++++----
+ drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.h     | 4 ++--
+ 3 files changed, 7 insertions(+), 7 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:13.241535815 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:14.076528151 +0100
+@@ -2799,7 +2799,7 @@
+ 		dev_kfree_skb(skb);
+ 		return -EIO;
+ 	}
+-	bnxt_xmit_xdp(bp, txr, map, pkt_size, 0);
++	__bnxt_xmit_xdp(bp, txr, map, pkt_size, 0);
+ 
+ 	/* Sync BD data before updating doorbell */
+ 	wmb();
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.c	2020-02-06 16:22:56.456689887 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.c	2020-02-06 16:23:14.076528151 +0100
+@@ -19,8 +19,8 @@
+ #include "bnxt.h"
+ #include "bnxt_xdp.h"
+ 
+-void bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
+-		   dma_addr_t mapping, u32 len, u16 rx_prod)
++void __bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
++		     dma_addr_t mapping, u32 len, u16 rx_prod)
+ {
+ 	struct bnxt_sw_tx_bd *tx_buf;
+ 	struct tx_bd *txbd;
+@@ -132,8 +132,8 @@
+ 		*event = BNXT_TX_EVENT;
+ 		dma_sync_single_for_device(&pdev->dev, mapping + offset, *len,
+ 					   bp->rx_dir);
+-		bnxt_xmit_xdp(bp, txr, mapping + offset, *len,
+-			      NEXT_RX(rxr->rx_prod));
++		__bnxt_xmit_xdp(bp, txr, mapping + offset, *len,
++				NEXT_RX(rxr->rx_prod));
+ 		bnxt_reuse_rx_data(rxr, cons, page);
+ 		return true;
+ 	default:
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.h	2020-02-06 16:22:56.456689887 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.h	2020-02-06 16:23:14.076528151 +0100
+@@ -10,8 +10,8 @@
+ #ifndef BNXT_XDP_H
+ #define BNXT_XDP_H
+ 
+-void bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
+-		   dma_addr_t mapping, u32 len, u16 rx_prod);
++void __bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
++		     dma_addr_t mapping, u32 len, u16 rx_prod);
+ void bnxt_tx_int_xdp(struct bnxt *bp, struct bnxt_napi *bnapi, int nr_pkts);
+ bool bnxt_rx_xdp(struct bnxt *bp, struct bnxt_rx_ring_info *rxr, u16 cons,
+ 		 struct page *page, u8 **data_ptr, unsigned int *len,

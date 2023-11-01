@@ -1,0 +1,176 @@
+From 467b7f37120a4e7b7583045ec83e549e7d01a28d Mon Sep 17 00:00:00 2001
+From: Petr Oros <poros@redhat.com>
+Date: Thu, 5 Sep 2019 10:00:57 -0400
+Subject: [PATCH 02/96] [netdrv] bnxt_en: Add bnxt_en initial port params table
+ and register it
+
+Message-id: <8735851440fccbd92993e8958f70edb7811f4512.1567595345.git.poros@redhat.com>
+Patchwork-id: 270937
+O-Subject: [RHEL8.2 net PATCH 01/15] bnxt_en: Add bnxt_en initial port params table and register it
+Bugzilla: 1737133
+RH-Acked-by: Jonathan Toppins <jtoppins@redhat.com>
+RH-Acked-by: Neil Horman <nhorman@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Ivan Vecera <ivecera@redhat.com>
+
+Bugzilla: http://bugzilla.redhat.com/show_bug.cgi?id=1737133
+
+Conflicts: \
+- Adjusted due to already aplied 7c62cfb8c5744b ("devlink: publish params
+  only after driver init is done")
+
+Upstream commit(s):
+commit 782a624d00fa22e7499f5abc29747501ec671313
+Author: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Date:   Mon Jan 28 18:00:27 2019 +0530
+
+    bnxt_en: Add bnxt_en initial port params table and register it
+
+    Register devlink_port with devlink and create initial port params
+    table for bnxt_en. The table consists of a generic parameter:
+
+    wake_on_lan: Enables Wake on Lan for this port when magic packet
+    is received with this port's MAC address using ACPI pattern.
+    If enabled, the controller asserts a wake pin upon reception of
+    WoL packet.  ACPI (Advanced Configuration and Power Interface) is
+    an industry specification for the efficient handling of power
+    consumption in desktop and mobile computers.
+
+    v2->v3:
+    - Modify bnxt_dl_wol_validate(), to throw error message when user gives
+      value other than DEVLINK_PARAM_WAKE_MAGIC ot to disable WOL.
+    - Use netdev_err() instead of netdev_warn(), when devlink_port_register()
+      and devlink_port_params_register() returns error. Also, don't log rc
+      in this message.
+
+    Cc: Michael Chan <michael.chan@broadcom.com>
+    Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+
+Signed-off-by: Petr Oros <poros@redhat.com>
+Signed-off-by: Timothy Redaelli <tredaelli@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h         |  1 +
+ drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c | 44 ++++++++++++++++++++++-
+ drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.h |  1 +
+ 3 files changed, 45 insertions(+), 1 deletion(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:22:57.596679422 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:11.133555165 +0100
+@@ -1613,6 +1613,7 @@
+ 
+ 	/* devlink interface and vf-rep structs */
+ 	struct devlink		*dl;
++	struct devlink_port	dl_port;
+ 	enum devlink_eswitch_mode eswitch_mode;
+ 	struct bnxt_vf_rep	**vf_reps; /* array of vf-rep ptrs */
+ 	u16			*cfa_code_map; /* cfa_code -> vf_idx map */
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:22:57.596679422 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.134555156 +0100
+@@ -37,6 +37,8 @@
+ 	 NVM_OFF_MSIX_VEC_PER_PF_MIN, BNXT_NVM_SHARED_CFG, 7},
+ 	{BNXT_DEVLINK_PARAM_ID_GRE_VER_CHECK, NVM_OFF_DIS_GRE_VER_CHECK,
+ 	 BNXT_NVM_SHARED_CFG, 1},
++
++	{DEVLINK_PARAM_GENERIC_ID_WOL, NVM_OFF_WOL, BNXT_NVM_PORT_CFG, 1},
+ };
+ 
+ static int bnxt_hwrm_nvm_req(struct bnxt *bp, u32 param_id, void *msg,
+@@ -70,7 +72,8 @@
+ 	bytesize = roundup(nvm_param.num_bits, BITS_PER_BYTE) / BITS_PER_BYTE;
+ 	switch (bytesize) {
+ 	case 1:
+-		if (nvm_param.num_bits == 1)
++		if (nvm_param.num_bits == 1 &&
++		    nvm_param.id != DEVLINK_PARAM_GENERIC_ID_WOL)
+ 			buf = &val->vbool;
+ 		else
+ 			buf = &val->vu8;
+@@ -164,6 +167,17 @@
+ 	return 0;
+ }
+ 
++static int bnxt_dl_wol_validate(struct devlink *dl, u32 id,
++				union devlink_param_value val,
++				struct netlink_ext_ack *extack)
++{
++	if (val.vu8 && val.vu8 != DEVLINK_PARAM_WAKE_MAGIC) {
++		NL_SET_ERR_MSG_MOD(extack, "WOL type is not supported");
++		return -EINVAL;
++	}
++	return 0;
++}
++
+ static const struct devlink_param bnxt_dl_params[] = {
+ 	DEVLINK_PARAM_GENERIC(ENABLE_SRIOV,
+ 			      BIT(DEVLINK_PARAM_CMODE_PERMANENT),
+@@ -188,6 +202,12 @@
+ 			     NULL),
+ };
+ 
++static const struct devlink_param bnxt_dl_port_params[] = {
++	DEVLINK_PARAM_GENERIC(WOL, BIT(DEVLINK_PARAM_CMODE_PERMANENT),
++			      bnxt_dl_nvm_param_get, bnxt_dl_nvm_param_set,
++			      bnxt_dl_wol_validate),
++};
++
+ int bnxt_dl_register(struct bnxt *bp)
+ {
+ 	struct devlink *dl;
+@@ -225,10 +245,29 @@
+ 		goto err_dl_unreg;
+ 	}
+ 
++	rc = devlink_port_register(dl, &bp->dl_port, bp->pf.port_id);
++	if (rc) {
++		netdev_err(bp->dev, "devlink_port_register failed");
++		goto err_dl_param_unreg;
++	}
++	devlink_port_type_eth_set(&bp->dl_port, bp->dev);
++
++	rc = devlink_port_params_register(&bp->dl_port, bnxt_dl_port_params,
++					  ARRAY_SIZE(bnxt_dl_port_params));
++	if (rc) {
++		netdev_err(bp->dev, "devlink_port_params_register failed");
++		goto err_dl_port_unreg;
++	}
++
+ 	devlink_params_publish(dl);
+ 
+ 	return 0;
+ 
++err_dl_port_unreg:
++	devlink_port_unregister(&bp->dl_port);
++err_dl_param_unreg:
++	devlink_params_unregister(dl, bnxt_dl_params,
++				  ARRAY_SIZE(bnxt_dl_params));
+ err_dl_unreg:
+ 	devlink_unregister(dl);
+ err_dl_free:
+@@ -244,6 +283,9 @@
+ 	if (!dl)
+ 		return;
+ 
++	devlink_port_params_unregister(&bp->dl_port, bnxt_dl_port_params,
++				       ARRAY_SIZE(bnxt_dl_port_params));
++	devlink_port_unregister(&bp->dl_port);
+ 	devlink_params_unregister(dl, bnxt_dl_params,
+ 				  ARRAY_SIZE(bnxt_dl_params));
+ 	devlink_unregister(dl);
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.h	2020-02-06 16:22:57.596679422 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.h	2020-02-06 16:23:11.134555156 +0100
+@@ -35,6 +35,7 @@
+ 
+ #define NVM_OFF_MSIX_VEC_PER_PF_MAX	108
+ #define NVM_OFF_MSIX_VEC_PER_PF_MIN	114
++#define NVM_OFF_WOL			152
+ #define NVM_OFF_IGNORE_ARI		164
+ #define NVM_OFF_DIS_GRE_VER_CHECK	171
+ #define NVM_OFF_ENABLE_SRIOV		401

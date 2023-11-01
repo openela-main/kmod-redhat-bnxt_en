@@ -1,0 +1,170 @@
+From 7cff5d1939a2a4b5325abda7aa5bddb7757e0e87 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:58 -0400
+Subject: [PATCH 43/96] [netdrv] bnxt_en: Expand bnxt_tpa_info struct to
+ support 57500 chips
+
+Message-id: <d5bcddccd785fcb964e019da190c04ee24ccdc8f.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276471
+O-Subject: [RHEL-8.2 PATCH 36/78] bnxt_en: Expand bnxt_tpa_info struct to support 57500 chips.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Add an aggregation array to bnxt_tpa_info struct to keep track of the
+aggregation completions.  The aggregation completions are not
+completed at the TPA_END completion on 57500 chips so we need to
+keep track of them.  The array is only allocated on the new chips
+when required.  An agg_count field is also added to keep track of the
+number of these completions.
+
+The maximum concurrent TPA is now discovered from firmware instead of
+the hardcoded 64.  Add a new bp->max_tpa to keep track of maximum
+configured TPA.
+
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 79632e9ba38671215fb193346ef6fb8db582744d)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 41 ++++++++++++++++++++++++++-----
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h |  6 +++++
+ 2 files changed, 41 insertions(+), 6 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:15.989510591 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:16.115509434 +0100
+@@ -2336,7 +2336,7 @@
+ 		int j;
+ 
+ 		if (rxr->rx_tpa) {
+-			for (j = 0; j < MAX_TPA; j++) {
++			for (j = 0; j < bp->max_tpa; j++) {
+ 				struct bnxt_tpa_info *tpa_info =
+ 							&rxr->rx_tpa[j];
+ 				u8 *data = tpa_info->data;
+@@ -2498,6 +2498,10 @@
+ 	for (i = 0; i < bp->rx_nr_rings; i++) {
+ 		struct bnxt_rx_ring_info *rxr = &bp->rx_ring[i];
+ 
++		if (rxr->rx_tpa) {
++			kfree(rxr->rx_tpa[0].agg_arr);
++			rxr->rx_tpa[0].agg_arr = NULL;
++		}
+ 		kfree(rxr->rx_tpa);
+ 		rxr->rx_tpa = NULL;
+ 	}
+@@ -2505,15 +2509,33 @@
+ 
+ static int bnxt_alloc_tpa_info(struct bnxt *bp)
+ {
+-	int i;
++	int i, j, total_aggs = 0;
++
++	bp->max_tpa = MAX_TPA;
++	if (bp->flags & BNXT_FLAG_CHIP_P5) {
++		if (!bp->max_tpa_v2)
++			return 0;
++		bp->max_tpa = max_t(u16, bp->max_tpa_v2, MAX_TPA_P5);
++		total_aggs = bp->max_tpa * MAX_SKB_FRAGS;
++	}
+ 
+ 	for (i = 0; i < bp->rx_nr_rings; i++) {
+ 		struct bnxt_rx_ring_info *rxr = &bp->rx_ring[i];
++		struct rx_agg_cmp *agg;
+ 
+-		rxr->rx_tpa = kcalloc(MAX_TPA, sizeof(struct bnxt_tpa_info),
++		rxr->rx_tpa = kcalloc(bp->max_tpa, sizeof(struct bnxt_tpa_info),
+ 				      GFP_KERNEL);
+ 		if (!rxr->rx_tpa)
+ 			return -ENOMEM;
++
++		if (!(bp->flags & BNXT_FLAG_CHIP_P5))
++			continue;
++		agg = kcalloc(total_aggs, sizeof(*agg), GFP_KERNEL);
++		rxr->rx_tpa[0].agg_arr = agg;
++		if (!agg)
++			return -ENOMEM;
++		for (j = 1; j < bp->max_tpa; j++)
++			rxr->rx_tpa[j].agg_arr = agg + j * MAX_SKB_FRAGS;
+ 	}
+ 	return 0;
+ }
+@@ -2979,7 +3001,7 @@
+ 			u8 *data;
+ 			dma_addr_t mapping;
+ 
+-			for (i = 0; i < MAX_TPA; i++) {
++			for (i = 0; i < bp->max_tpa; i++) {
+ 				data = __bnxt_alloc_rx_data(bp, &mapping,
+ 							    GFP_KERNEL);
+ 				if (!data)
+@@ -4440,6 +4462,7 @@
+ static int bnxt_hwrm_vnic_set_tpa(struct bnxt *bp, u16 vnic_id, u32 tpa_flags)
+ {
+ 	struct bnxt_vnic_info *vnic = &bp->vnic_info[vnic_id];
++	u16 max_aggs = VNIC_TPA_CFG_REQ_MAX_AGGS_MAX;
+ 	struct hwrm_vnic_tpa_cfg_input req = {0};
+ 
+ 	if (vnic->fw_vnic_id == INVALID_HW_RING_ID)
+@@ -4479,9 +4502,14 @@
+ 			nsegs = (MAX_SKB_FRAGS - n) / n;
+ 		}
+ 
+-		segs = ilog2(nsegs);
++		if (bp->flags & BNXT_FLAG_CHIP_P5) {
++			segs = MAX_TPA_SEGS_P5;
++			max_aggs = bp->max_tpa;
++		} else {
++			segs = ilog2(nsegs);
++		}
+ 		req.max_agg_segs = cpu_to_le16(segs);
+-		req.max_aggs = cpu_to_le16(VNIC_TPA_CFG_REQ_MAX_AGGS_MAX);
++		req.max_aggs = cpu_to_le16(max_aggs);
+ 
+ 		req.min_agg_len = cpu_to_le32(512);
+ 	}
+@@ -4841,6 +4869,7 @@
+ 		if (flags &
+ 		    VNIC_QCAPS_RESP_FLAGS_ROCE_MIRRORING_CAPABLE_VNIC_CAP)
+ 			bp->flags |= BNXT_FLAG_ROCE_MIRROR_CAP;
++		bp->max_tpa_v2 = le16_to_cpu(resp->max_aggs_supported);
+ 	}
+ 	mutex_unlock(&bp->hwrm_cmd_lock);
+ 	return rc;
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:15.866511720 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:16.116509425 +0100
+@@ -554,6 +554,8 @@
+ #define BNXT_DEFAULT_TX_RING_SIZE	511
+ 
+ #define MAX_TPA		64
++#define MAX_TPA_P5	256
++#define MAX_TPA_SEGS_P5	0x3f
+ 
+ #if (BNXT_PAGE_SHIFT == 16)
+ #define MAX_RX_PAGES	1
+@@ -835,6 +837,8 @@
+ 	((hdr_info) & 0x1ff)
+ 
+ 	u16			cfa_code; /* cfa_code in TPA start compl */
++	u8			agg_count;
++	struct rx_agg_cmp	*agg_arr;
+ };
+ 
+ struct bnxt_rx_ring_info {
+@@ -1481,6 +1485,8 @@
+ 					       u16, void *, u8 *, dma_addr_t,
+ 					       unsigned int);
+ 
++	u16			max_tpa_v2;
++	u16			max_tpa;
+ 	u32			rx_buf_size;
+ 	u32			rx_buf_use_size;	/* useable size */
+ 	u16			rx_offset;

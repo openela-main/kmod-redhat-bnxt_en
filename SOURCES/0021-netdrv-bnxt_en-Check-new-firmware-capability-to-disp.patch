@@ -1,0 +1,76 @@
+From 7c4869095f8b11b912280ce17ebdbe6389cedf1b Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:36 -0400
+Subject: [PATCH 21/96] [netdrv] bnxt_en: Check new firmware capability to
+ display extended stats
+
+Message-id: <75c33ccbd03fe0c828ea8d1177ece257e36b1f0a.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276438
+O-Subject: [RHEL-8.2 PATCH 14/78] bnxt_en: Check new firmware capability to display extended stats.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Newer firmware now advertises the capability for extended stats
+support.  Check the new capability in addition to the existing
+version check.
+
+Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 6154532fe8fe4e5ec5ffb1a71f587015973f8753)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 8 ++++++--
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h | 1 +
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.956538431 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:13.099537119 +0100
+@@ -3476,7 +3476,8 @@
+ alloc_ext_stats:
+ 	/* Display extended statistics only if FW supports it */
+ 	if (bp->hwrm_spec_code < 0x10804 || bp->hwrm_spec_code == 0x10900)
+-		return 0;
++		if (!(bp->fw_cap & BNXT_FW_CAP_EXT_STATS_SUPPORTED))
++			return 0;
+ 
+ 	if (bp->hw_rx_port_stats_ext)
+ 		goto alloc_tx_ext_stats;
+@@ -3491,7 +3492,8 @@
+ 	if (bp->hw_tx_port_stats_ext)
+ 		goto alloc_pcie_stats;
+ 
+-	if (bp->hwrm_spec_code >= 0x10902) {
++	if (bp->hwrm_spec_code >= 0x10902 ||
++	    (bp->fw_cap & BNXT_FW_CAP_EXT_STATS_SUPPORTED)) {
+ 		bp->hw_tx_port_stats_ext =
+ 			dma_alloc_coherent(&pdev->dev,
+ 					   sizeof(struct tx_port_stats_ext),
+@@ -6543,6 +6545,8 @@
+ 		bp->flags |= BNXT_FLAG_ROCEV2_CAP;
+ 	if (flags & FUNC_QCAPS_RESP_FLAGS_PCIE_STATS_SUPPORTED)
+ 		bp->fw_cap |= BNXT_FW_CAP_PCIE_STATS_SUPPORTED;
++	if (flags & FUNC_QCAPS_RESP_FLAGS_EXT_STATS_SUPPORTED)
++		bp->fw_cap |= BNXT_FW_CAP_EXT_STATS_SUPPORTED;
+ 
+ 	bp->tx_push_thresh = 0;
+ 	if (flags & FUNC_QCAPS_RESP_FLAGS_PUSH_MODE_SUPPORTED)
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:12.956538431 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:13.099537119 +0100
+@@ -1484,6 +1484,7 @@
+ 	#define BNXT_FW_CAP_OVS_64BIT_HANDLE		0x00000400
+ 	#define BNXT_FW_CAP_TRUSTED_VF			0x00000800
+ 	#define BNXT_FW_CAP_PCIE_STATS_SUPPORTED	0x00020000
++	#define BNXT_FW_CAP_EXT_STATS_SUPPORTED		0x00040000
+ 
+ #define BNXT_NEW_RM(bp)		((bp)->fw_cap & BNXT_FW_CAP_NEW_RM)
+ 	u32			hwrm_spec_code;

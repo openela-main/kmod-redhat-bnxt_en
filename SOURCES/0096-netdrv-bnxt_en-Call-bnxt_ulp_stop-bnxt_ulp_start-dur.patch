@@ -1,0 +1,51 @@
+From c3ded828bd263b14d9a7af6e51e6d38ba83a7856 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Fri, 6 Dec 2019 20:12:53 -0500
+Subject: [PATCH 96/96] [netdrv] bnxt_en: Call bnxt_ulp_stop()/bnxt_ulp_start()
+ during suspend/resume
+
+Message-id: <8fe101a1eefe9c4bba9c301514b692d55696ddc6.1575651772.git.jtoppins@redhat.com>
+Patchwork-id: 291378
+O-Subject: [PATCH rhel8 13/13] bnxt_en: Call bnxt_ulp_stop()/bnxt_ulp_start() during suspend/resume.
+Bugzilla: 1773724
+RH-Acked-by: Steve Best <sbest@redhat.com>
+RH-Acked-by: David Arcari <darcari@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+
+Inform the RDMA driver to stop/start during suspend/resume.  The
+RDMA driver needs to stop and start just like error recovery.
+
+Signed-off-by: Pavan Chebbi <pavan.chebbi@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 6a68749dbd777b832e1d84265bd6d8b39d1843ac)
+Bugzilla: 1773724
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=25154853
+Tested: simple boot test
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:23.130445043 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:23.267443785 +0100
+@@ -11929,6 +11929,7 @@
+ 	int rc = 0;
+ 
+ 	rtnl_lock();
++	bnxt_ulp_stop(bp);
+ 	if (netif_running(dev)) {
+ 		netif_device_detach(dev);
+ 		rc = bnxt_close(dev);
+@@ -11963,6 +11964,7 @@
+ 	}
+ 
+ resume_exit:
++	bnxt_ulp_start(bp, rc);
+ 	rtnl_unlock();
+ 	return rc;
+ }

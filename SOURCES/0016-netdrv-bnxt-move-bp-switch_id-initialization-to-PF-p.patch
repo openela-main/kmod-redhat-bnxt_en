@@ -1,0 +1,117 @@
+From 1271da6fd65bb6129a99946546cdd8e1f9e69e2d Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:30 -0400
+Subject: [PATCH 16/96] [netdrv] bnxt: move bp->switch_id initialization to PF
+ probe
+
+Message-id: <edbaf01b25b2dce490cff02ddb2092da527353fa.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276431
+O-Subject: [RHEL-8.2 PATCH 08/78] bnxt: move bp->switch_id initialization to PF probe
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Currently the switch_id is being only initialized when switching eswitch
+mode from "legacy" to "switchdev". However, nothing prevents the id to
+be initialized from the very beginning. Physical ports can show it even
+in "legacy" mode.
+
+Signed-off-by: Jiri Pirko <jiri@mellanox.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 03213a996531e507e03c085d411a313e34357498)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c     | 25 +++++++++++++++++++++++++
+ drivers/net/ethernet/broadcom/bnxt/bnxt_vfr.c | 25 -------------------------
+ 2 files changed, 25 insertions(+), 25 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.414543406 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.563542039 +0100
+@@ -10473,6 +10473,26 @@
+ 	return rc;
+ }
+ 
++static int bnxt_pcie_dsn_get(struct bnxt *bp, u8 dsn[])
++{
++	struct pci_dev *pdev = bp->pdev;
++	int pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_DSN);
++	u32 dw;
++
++	if (!pos) {
++		netdev_info(bp->dev, "Unable do read adapter's DSN");
++		return -EOPNOTSUPP;
++	}
++
++	/* DSN (two dw) is at an offset of 4 from the cap pos */
++	pos += 4;
++	pci_read_config_dword(pdev, pos, &dw);
++	put_unaligned_le32(dw, &dsn[0]);
++	pci_read_config_dword(pdev, pos + 4, &dw);
++	put_unaligned_le32(dw, &dsn[4]);
++	return 0;
++}
++
+ static int bnxt_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
+ {
+ 	static int version_printed;
+@@ -10613,6 +10633,11 @@
+ 		goto init_err_pci_clean;
+ 	}
+ 
++	/* Read the adapter's DSN to use as the eswitch switch_id */
++	rc = bnxt_pcie_dsn_get(bp, bp->switch_id);
++	if (rc)
++		goto init_err_pci_clean;
++
+ 	bnxt_hwrm_func_qcfg(bp);
+ 	bnxt_hwrm_vnic_qcaps(bp);
+ 	bnxt_hwrm_port_led_qcaps(bp);
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_vfr.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_vfr.c	2020-02-06 16:23:12.415543397 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_vfr.c	2020-02-06 16:23:12.563542039 +0100
+@@ -406,26 +406,6 @@
+ 	dev->min_mtu = ETH_ZLEN;
+ }
+ 
+-static int bnxt_pcie_dsn_get(struct bnxt *bp, u8 dsn[])
+-{
+-	struct pci_dev *pdev = bp->pdev;
+-	int pos = pci_find_ext_capability(pdev, PCI_EXT_CAP_ID_DSN);
+-	u32 dw;
+-
+-	if (!pos) {
+-		netdev_info(bp->dev, "Unable do read adapter's DSN");
+-		return -EOPNOTSUPP;
+-	}
+-
+-	/* DSN (two dw) is at an offset of 4 from the cap pos */
+-	pos += 4;
+-	pci_read_config_dword(pdev, pos, &dw);
+-	put_unaligned_le32(dw, &dsn[0]);
+-	pci_read_config_dword(pdev, pos + 4, &dw);
+-	put_unaligned_le32(dw, &dsn[4]);
+-	return 0;
+-}
+-
+ static int bnxt_vf_reps_create(struct bnxt *bp)
+ {
+ 	u16 *cfa_code_map = NULL, num_vfs = pci_num_vf(bp->pdev);
+@@ -490,11 +470,6 @@
+ 		}
+ 	}
+ 
+-	/* Read the adapter's DSN to use as the eswitch switch_id */
+-	rc = bnxt_pcie_dsn_get(bp, bp->switch_id);
+-	if (rc)
+-		goto err;
+-
+ 	/* publish cfa_code_map only after all VF-reps have been initialized */
+ 	bp->cfa_code_map = cfa_code_map;
+ 	bp->eswitch_mode = DEVLINK_ESWITCH_MODE_SWITCHDEV;

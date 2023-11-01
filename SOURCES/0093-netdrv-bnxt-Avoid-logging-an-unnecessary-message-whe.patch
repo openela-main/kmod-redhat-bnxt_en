@@ -1,0 +1,48 @@
+From fd58eda8d85adfa7b537e19b4407155cd014f76b Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Fri, 6 Dec 2019 20:12:49 -0500
+Subject: [PATCH 93/96] [netdrv] bnxt: Avoid logging an unnecessary message
+ when a flow can't be offloaded
+
+Message-id: <f09a970352f5c52cefbca0156ac1174b441b1353.1575651772.git.jtoppins@redhat.com>
+Patchwork-id: 291381
+O-Subject: [PATCH rhel8 09/13] bnxt: Avoid logging an unnecessary message when a flow can't be offloaded
+Bugzilla: 1773724
+RH-Acked-by: Steve Best <sbest@redhat.com>
+RH-Acked-by: David Arcari <darcari@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+
+For every single case where bnxt_tc_can_offload() can fail, we are
+logging a user friendly descriptive message anyway, but because of the
+path it would take in case of failure, another redundant error message
+would get logged. Just freeing the node and returning from the point of
+failure should suffice.
+
+Signed-off-by: Somnath Kotur <somnath.kotur@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 08f8280e8788202a67a359952cd436707f8789bd)
+Bugzilla: 1773724
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=25154853
+Tested: simple boot test
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c	2020-02-06 16:23:18.307489314 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c	2020-02-06 16:23:22.853447585 +0100
+@@ -1274,7 +1274,8 @@
+ 
+ 	if (!bnxt_tc_can_offload(bp, flow)) {
+ 		rc = -EOPNOTSUPP;
+-		goto free_node;
++		kfree_rcu(new_node, rcu);
++		return rc;
+ 	}
+ 
+ 	/* If a flow exists with the same cookie, delete it */

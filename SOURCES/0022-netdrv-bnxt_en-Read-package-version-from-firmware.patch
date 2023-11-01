@@ -1,0 +1,77 @@
+From d3c5c8c9f03aef9ee1560babaf9513478e3b3bf2 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:37 -0400
+Subject: [PATCH 22/96] [netdrv] bnxt_en: Read package version from firmware
+
+Message-id: <47986fa0bee271229f9f3fd74257117edf28b159.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276440
+O-Subject: [RHEL-8.2 PATCH 15/78] bnxt_en: Read package version from firmware.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+HWRM_VER_GET firmware command returns package name that is running
+actively on the adapter.  Use this version instead of parsing from
+the package log in NVRAM.
+
+Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 691aa62045c2b23152ce3b64feb601502aab97c5)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c         | 9 +++++++++
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h         | 1 +
+ drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c | 3 ++-
+ 3 files changed, 12 insertions(+), 1 deletion(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:13.099537119 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:13.240535824 +0100
+@@ -6710,6 +6710,15 @@
+ 		 resp->hwrm_fw_maj_8b, resp->hwrm_fw_min_8b,
+ 		 resp->hwrm_fw_bld_8b, resp->hwrm_fw_rsvd_8b);
+ 
++	if (strlen(resp->active_pkg_name)) {
++		int fw_ver_len = strlen(bp->fw_ver_str);
++
++		snprintf(bp->fw_ver_str + fw_ver_len,
++			 FW_VER_STR_LEN - fw_ver_len - 1, "/pkg %s",
++			 resp->active_pkg_name);
++		bp->fw_cap |= BNXT_FW_CAP_PKG_VER;
++	}
++
+ 	bp->hwrm_cmd_timeout = le16_to_cpu(resp->def_req_timeout);
+ 	if (!bp->hwrm_cmd_timeout)
+ 		bp->hwrm_cmd_timeout = DFLT_HWRM_CMD_TIMEOUT;
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:13.099537119 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:13.240535824 +0100
+@@ -1483,6 +1483,7 @@
+ 	#define BNXT_FW_CAP_KONG_MB_CHNL		0x00000080
+ 	#define BNXT_FW_CAP_OVS_64BIT_HANDLE		0x00000400
+ 	#define BNXT_FW_CAP_TRUSTED_VF			0x00000800
++	#define BNXT_FW_CAP_PKG_VER			0x00004000
+ 	#define BNXT_FW_CAP_PCIE_STATS_SUPPORTED	0x00020000
+ 	#define BNXT_FW_CAP_EXT_STATS_SUPPORTED		0x00040000
+ 
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:12.957538422 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:13.241535815 +0100
+@@ -3305,7 +3305,8 @@
+ 	struct net_device *dev = bp->dev;
+ 	int i, rc;
+ 
+-	bnxt_get_pkgver(dev);
++	if (!(bp->fw_cap & BNXT_FW_CAP_PKG_VER))
++		bnxt_get_pkgver(dev);
+ 
+ 	if (bp->hwrm_spec_code < 0x10704 || !BNXT_SINGLE_PF(bp))
+ 		return;

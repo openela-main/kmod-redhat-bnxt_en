@@ -1,0 +1,57 @@
+From dc0e1a87f072fad80e9b9dd314dbf182a0655931 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:12 -0400
+Subject: [PATCH 57/96] [netdrv] bnxt_en: Fix allocation of zero statistics
+ block size regression
+
+Message-id: <d07b6ae478d4df07750d35acd7b5a2697735b8aa.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276481
+O-Subject: [RHEL-8.2 PATCH 50/78] bnxt_en: Fix allocation of zero statistics block size regression.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Recent commit added logic to determine the appropriate statistics block
+size to allocate and the size is stored in bp->hw_ring_stats_size.  But
+if the firmware spec is older than 1.6.0, it is 0 and not initialized.
+This causes the allocation to fail with size 0 and bnxt_open() to
+abort.  Fix it by always initializing bp->hw_ring_stats_size to the
+legacy default size value.
+
+Fixes: 4e7485066373 ("bnxt_en: Allocate the larger per-ring statistics block for 57500 chips.")
+Reported-by: Jonathan Lemon <jonathan.lemon@gmail.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Tested-by: Jonathan Lemon <jonathan.lemon@gmail.com>
+Acked-by: Jonathan Lemon <jonathan.lemon@gmail.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit fbbdbc6473070dcb3ee1d69cf1c49ff78677d716)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:17.665495207 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:17.921492857 +0100
+@@ -4990,6 +4990,7 @@
+ 	struct hwrm_vnic_qcaps_input req = {0};
+ 	int rc;
+ 
++	bp->hw_ring_stats_size = sizeof(struct ctx_hw_stats);
+ 	if (bp->hwrm_spec_code < 0x10600)
+ 		return 0;
+ 
+@@ -5009,8 +5010,6 @@
+ 		if (bp->max_tpa_v2)
+ 			bp->hw_ring_stats_size =
+ 				sizeof(struct ctx_hw_stats_ext);
+-		else
+-			bp->hw_ring_stats_size = sizeof(struct ctx_hw_stats);
+ 	}
+ 	mutex_unlock(&bp->hwrm_cmd_lock);
+ 	return rc;

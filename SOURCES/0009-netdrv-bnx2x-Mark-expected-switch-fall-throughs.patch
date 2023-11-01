@@ -1,0 +1,40 @@
+From 2882c017dd9e20a2ee60be54b9f2526f546b8ede Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:23 -0400
+Subject: [PATCH 09/96] [netdrv] bnx2x: Mark expected switch fall-throughs
+
+Message-id: <1206ba4b35133e848acd993afd66d271c4fc1e9b.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276427
+O-Subject: [RHEL-8.2 PATCH 01/78] bnx2x: Mark expected switch fall-throughs
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+In preparation to enabling -Wimplicit-fallthrough, mark switch cases
+where we are expecting to fall through.
+
+Signed-off-by: Gustavo A. R. Silva <gustavo@embeddedor.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 83607344d667315687e1a5ddd2ad2fbbff22cc43)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:10.933557001 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:11.904548088 +0100
+@@ -1793,7 +1793,7 @@
+ 					    speed);
+ 		}
+ 		set_bit(BNXT_LINK_SPEED_CHNG_SP_EVENT, &bp->sp_event);
+-		/* fall thru */
++		/* fall through */
+ 	}
+ 	case ASYNC_EVENT_CMPL_EVENT_ID_LINK_STATUS_CHANGE:
+ 		set_bit(BNXT_LINK_CHNG_SP_EVENT, &bp->sp_event);

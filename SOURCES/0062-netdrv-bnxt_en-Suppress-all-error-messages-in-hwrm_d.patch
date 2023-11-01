@@ -1,0 +1,91 @@
+From 7368c8c1ff8c532df744d7e183507309cd4647f9 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:17 -0400
+Subject: [PATCH 62/96] [netdrv] bnxt_en: Suppress all error messages in
+ hwrm_do_send_msg() in silent mode
+
+Message-id: <8cb780ae7e85c9c31455263c9cb89b904e44e2c0.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276485
+O-Subject: [RHEL-8.2 PATCH 55/78] bnxt_en: Suppress all error messages in hwrm_do_send_msg() in silent mode.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+If the silent parameter is set, suppress all messages when there is
+no response from firmware.  When polling for firmware to come out of
+reset, no response may be normal and we want to suppress the error
+messages.  Also, don't poll for the firmware DMA response if Bus Master
+is disabled.  This is in preparation for error recovery when firmware
+may be in error or reset state or Bus Master is disabled.
+
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 5bedb5296e33e889818d77c8ec69040481fab157)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 27 +++++++++++++++++----------
+ 1 file changed, 17 insertions(+), 10 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:18.306489323 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:18.605486578 +0100
+@@ -4160,6 +4160,9 @@
+ 	/* Ring channel doorbell */
+ 	writel(1, bp->bar0 + doorbell_offset);
+ 
++	if (!pci_is_enabled(bp->pdev))
++		return 0;
++
+ 	if (!timeout)
+ 		timeout = DFLT_HWRM_CMD_TIMEOUT;
+ 	/* convert timeout to usec */
+@@ -4191,8 +4194,9 @@
+ 		}
+ 
+ 		if (bp->hwrm_intr_seq_id != (u16)~seq_id) {
+-			netdev_err(bp->dev, "Resp cmpl intr err msg: 0x%x\n",
+-				   le16_to_cpu(req->req_type));
++			if (!silent)
++				netdev_err(bp->dev, "Resp cmpl intr err msg: 0x%x\n",
++					   le16_to_cpu(req->req_type));
+ 			return -EBUSY;
+ 		}
+ 		len = (le32_to_cpu(*resp_len) & HWRM_RESP_LEN_MASK) >>
+@@ -4217,10 +4221,11 @@
+ 		}
+ 
+ 		if (i >= tmo_count) {
+-			netdev_err(bp->dev, "Error (timeout: %d) msg {0x%x 0x%x} len:%d\n",
+-				   HWRM_TOTAL_TIMEOUT(i),
+-				   le16_to_cpu(req->req_type),
+-				   le16_to_cpu(req->seq_id), len);
++			if (!silent)
++				netdev_err(bp->dev, "Error (timeout: %d) msg {0x%x 0x%x} len:%d\n",
++					   HWRM_TOTAL_TIMEOUT(i),
++					   le16_to_cpu(req->req_type),
++					   le16_to_cpu(req->seq_id), len);
+ 			return -EBUSY;
+ 		}
+ 
+@@ -4235,10 +4240,12 @@
+ 		}
+ 
+ 		if (j >= HWRM_VALID_BIT_DELAY_USEC) {
+-			netdev_err(bp->dev, "Error (timeout: %d) msg {0x%x 0x%x} len:%d v:%d\n",
+-				   HWRM_TOTAL_TIMEOUT(i),
+-				   le16_to_cpu(req->req_type),
+-				   le16_to_cpu(req->seq_id), len, *valid);
++			if (!silent)
++				netdev_err(bp->dev, "Error (timeout: %d) msg {0x%x 0x%x} len:%d v:%d\n",
++					   HWRM_TOTAL_TIMEOUT(i),
++					   le16_to_cpu(req->req_type),
++					   le16_to_cpu(req->seq_id), len,
++					   *valid);
+ 			return -EBUSY;
+ 		}
+ 	}

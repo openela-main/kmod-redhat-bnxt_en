@@ -1,0 +1,180 @@
+From 25caba1a0368d1af60c0ee2e817d36a0d97e05e1 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:27 -0400
+Subject: [PATCH 13/96] [netdrv] bnxt: Implement ndo_get_port_parent_id()
+
+Message-id: <610919f3c6de0c97b6b178b7f643f6c81a2de24a.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276436
+O-Subject: [RHEL-8.2 PATCH 05/78] bnxt: Implement ndo_get_port_parent_id()
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+BNXT only supports SWITCHDEV_ATTR_ID_PORT_PARENT_ID, which makes it a
+great candidate to be converted to use the ndo_get_port_parent_id() NDO
+instead of implementing switchdev_port_attr_get(). The conversion is
+straight forward here since the PF and VF code use the same getter.
+
+Since bnxt makes uses of switchdev_port_same_parent_id() convert it to
+use netdev_port_same_parent_id().
+
+Acked-by: Jiri Pirko <jiri@mellanox.com>
+Signed-off-by: Florian Fainelli <f.fainelli@gmail.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 52d5254a2d045bba2a744042319c64e1fe41b5c8)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c     | 28 ++++++++-------------------
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h     |  4 ++--
+ drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c  |  2 +-
+ drivers/net/ethernet/broadcom/bnxt/bnxt_vfr.c | 12 ++++--------
+ 4 files changed, 15 insertions(+), 31 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.276544673 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.414543406 +0100
+@@ -10099,8 +10099,11 @@
+ 	return 0;
+ }
+ 
+-int bnxt_port_attr_get(struct bnxt *bp, struct switchdev_attr *attr)
++int bnxt_get_port_parent_id(struct net_device *dev,
++			    struct netdev_phys_item_id *ppid)
+ {
++	struct bnxt *bp = netdev_priv(dev);
++
+ 	if (bp->eswitch_mode != DEVLINK_ESWITCH_MODE_SWITCHDEV)
+ 		return -EOPNOTSUPP;
+ 
+@@ -10108,27 +10111,12 @@
+ 	if (!BNXT_PF(bp))
+ 		return -EOPNOTSUPP;
+ 
+-	switch (attr->id) {
+-	case SWITCHDEV_ATTR_ID_PORT_PARENT_ID:
+-		attr->u.ppid.id_len = sizeof(bp->switch_id);
+-		memcpy(attr->u.ppid.id, bp->switch_id, attr->u.ppid.id_len);
+-		break;
+-	default:
+-		return -EOPNOTSUPP;
+-	}
+-	return 0;
+-}
++	ppid->id_len = sizeof(bp->switch_id);
++	memcpy(ppid->id, bp->switch_id, ppid->id_len);
+ 
+-static int bnxt_swdev_port_attr_get(struct net_device *dev,
+-				    struct switchdev_attr *attr)
+-{
+-	return bnxt_port_attr_get(netdev_priv(dev), attr);
++	return 0;
+ }
+ 
+-static const struct switchdev_ops bnxt_switchdev_ops = {
+-	.switchdev_port_attr_get	= bnxt_swdev_port_attr_get
+-};
+-
+ static const struct net_device_ops bnxt_netdev_ops = {
+ 	.ndo_open		= bnxt_open,
+ 	.ndo_start_xmit		= bnxt_start_xmit,
+@@ -10160,6 +10148,7 @@
+ 	.ndo_bpf		= bnxt_xdp,
+ 	.ndo_bridge_getlink	= bnxt_bridge_getlink,
+ 	.ndo_bridge_setlink	= bnxt_bridge_setlink,
++	.ndo_get_port_parent_id	= bnxt_get_port_parent_id,
+ 	.ndo_get_phys_port_name = bnxt_get_phys_port_name
+ };
+ 
+@@ -10518,7 +10507,6 @@
+ 	dev->netdev_ops = &bnxt_netdev_ops;
+ 	dev->watchdog_timeo = BNXT_TX_TIMEOUT;
+ 	dev->ethtool_ops = &bnxt_ethtool_ops;
+-	SWITCHDEV_SET_OPS(dev, &bnxt_switchdev_ops);
+ 	pci_set_drvdata(pdev, dev);
+ 
+ 	rc = bnxt_alloc_hwrm_resources(bp);
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:11.133555165 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:12.415543397 +0100
+@@ -23,7 +23,6 @@
+ #include <linux/crash_dump.h>
+ #include <net/devlink.h>
+ #include <net/dst_metadata.h>
+-#include <net/switchdev.h>
+ #include <net/xdp.h>
+ #include <linux/net_dim.h>
+ 
+@@ -1799,7 +1798,8 @@
+ int bnxt_setup_mq_tc(struct net_device *dev, u8 tc);
+ int bnxt_get_max_rings(struct bnxt *, int *, int *, bool);
+ int bnxt_restore_pf_fw_resources(struct bnxt *bp);
+-int bnxt_port_attr_get(struct bnxt *bp, struct switchdev_attr *attr);
++int bnxt_get_port_parent_id(struct net_device *dev,
++			    struct netdev_phys_item_id *ppid);
+ void bnxt_dim_work(struct work_struct *work);
+ int bnxt_hwrm_set_ring_coal(struct bnxt *bp, struct bnxt_napi *bnapi);
+ 
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c	2020-02-06 16:22:57.079684168 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c	2020-02-06 16:23:12.415543397 +0100
+@@ -45,7 +45,7 @@
+ 	struct bnxt *bp;
+ 
+ 	/* check if dev belongs to the same switch */
+-	if (!switchdev_port_same_parent_id(pf_bp->dev, dev)) {
++	if (!netdev_port_same_parent_id(pf_bp->dev, dev)) {
+ 		netdev_info(pf_bp->dev, "dev(ifindex=%d) not on same switch",
+ 			    dev->ifindex);
+ 		return BNXT_FID_INVALID;
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_vfr.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_vfr.c	2020-02-06 16:22:57.079684168 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_vfr.c	2020-02-06 16:23:12.415543397 +0100
+@@ -237,21 +237,17 @@
+ 	strlcpy(info->version, DRV_MODULE_VERSION, sizeof(info->version));
+ }
+ 
+-static int bnxt_vf_rep_port_attr_get(struct net_device *dev,
+-				     struct switchdev_attr *attr)
++static int bnxt_vf_rep_get_port_parent_id(struct net_device *dev,
++					  struct netdev_phys_item_id *ppid)
+ {
+ 	struct bnxt_vf_rep *vf_rep = netdev_priv(dev);
+ 
+ 	/* as only PORT_PARENT_ID is supported currently use common code
+ 	 * between PF and VF-rep for now.
+ 	 */
+-	return bnxt_port_attr_get(vf_rep->bp, attr);
++	return bnxt_get_port_parent_id(vf_rep->bp->dev, ppid);
+ }
+ 
+-static const struct switchdev_ops bnxt_vf_rep_switchdev_ops = {
+-	.switchdev_port_attr_get	= bnxt_vf_rep_port_attr_get
+-};
+-
+ static const struct ethtool_ops bnxt_vf_rep_ethtool_ops = {
+ 	.get_drvinfo		= bnxt_vf_rep_get_drvinfo
+ };
+@@ -262,6 +258,7 @@
+ 	.ndo_start_xmit		= bnxt_vf_rep_xmit,
+ 	.ndo_get_stats64	= bnxt_vf_rep_get_stats64,
+ 	.ndo_setup_tc		= bnxt_vf_rep_setup_tc,
++	.ndo_get_port_parent_id	= bnxt_vf_rep_get_port_parent_id,
+ 	.ndo_get_phys_port_name = bnxt_vf_rep_get_phys_port_name
+ };
+ 
+@@ -392,7 +389,6 @@
+ 
+ 	dev->netdev_ops = &bnxt_vf_rep_netdev_ops;
+ 	dev->ethtool_ops = &bnxt_vf_rep_ethtool_ops;
+-	SWITCHDEV_SET_OPS(dev, &bnxt_vf_rep_switchdev_ops);
+ 	/* Just inherit all the featues of the parent PF as the VF-R
+ 	 * uses the RX/TX rings of the parent PF
+ 	 */

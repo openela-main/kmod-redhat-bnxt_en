@@ -1,0 +1,88 @@
+From 3a8601f1dc8e341392bde4484716cdb1dd32e0f9 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:53 -0400
+Subject: [PATCH 38/96] [netdrv] bnxt_en: Fix to include flow direction in L2
+ key
+
+Message-id: <6991949fd7b4b1a47fac9013c2aaeae8f97cac3f.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276457
+O-Subject: [RHEL-8.2 PATCH 31/78] bnxt_en: Fix to include flow direction in L2 key
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+FW expects the driver to provide unique flow reference handles
+for Tx or Rx flows. When a Tx flow and an Rx flow end up sharing
+a reference handle, flow offload does not seem to work.
+This could happen in the case of 2 flows having their L2 fields
+wildcarded but in different direction.
+Fix to incorporate the flow direction as part of the L2 key
+
+v2: Move the dir field to the end of the bnxt_tc_l2_key struct to
+fix the warning reported by kbuild test robot <lkp@intel.com>.
+There is existing code that initializes the structure using
+nested initializer and will warn with the new u8 field added to
+the beginning.  The structure also packs nicer when this new u8 is
+added to the end of the structure [MChan].
+
+Fixes: abd43a13525d ("bnxt_en: Support for 64-bit flow handle.")
+Signed-off-by: Somnath Kotur <somnath.kotur@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 9bf46566e80fd94845527d01ebd888eb49313551)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c | 4 ++--
+ drivers/net/ethernet/broadcom/bnxt/bnxt_tc.h | 6 +++---
+ 2 files changed, 5 insertions(+), 5 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c	2020-02-06 16:23:15.352516438 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c	2020-02-06 16:23:15.476515300 +0100
+@@ -1236,7 +1236,7 @@
+ static void bnxt_tc_set_flow_dir(struct bnxt *bp, struct bnxt_tc_flow *flow,
+ 				 u16 src_fid)
+ {
+-	flow->dir = (bp->pf.fw_fid == src_fid) ? BNXT_DIR_RX : BNXT_DIR_TX;
++	flow->l2_key.dir = (bp->pf.fw_fid == src_fid) ? BNXT_DIR_RX : BNXT_DIR_TX;
+ }
+ 
+ static void bnxt_tc_set_src_fid(struct bnxt *bp, struct bnxt_tc_flow *flow,
+@@ -1405,7 +1405,7 @@
+ 		 * 2. 15th bit of flow_handle must specify the flow
+ 		 *    direction (TX/RX).
+ 		 */
+-		if (flow_node->flow.dir == BNXT_DIR_RX)
++		if (flow_node->flow.l2_key.dir == BNXT_DIR_RX)
+ 			handle = CFA_FLOW_INFO_REQ_FLOW_HANDLE_DIR_RX |
+ 				 CFA_FLOW_INFO_REQ_FLOW_HANDLE_MAX_MASK;
+ 		else
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.h	2020-02-06 16:22:55.940694623 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.h	2020-02-06 16:23:15.476515300 +0100
+@@ -23,6 +23,9 @@
+ 	__be16		inner_vlan_tci;
+ 	__be16		ether_type;
+ 	u8		num_vlans;
++	u8		dir;
++#define BNXT_DIR_RX	1
++#define BNXT_DIR_TX	0
+ };
+ 
+ struct bnxt_tc_l3_key {
+@@ -98,9 +101,6 @@
+ 
+ 	/* flow applicable to pkts ingressing on this fid */
+ 	u16				src_fid;
+-	u8				dir;
+-#define BNXT_DIR_RX	1
+-#define BNXT_DIR_TX	0
+ 	struct bnxt_tc_l2_key		l2_key;
+ 	struct bnxt_tc_l2_key		l2_mask;
+ 	struct bnxt_tc_l3_key		l3_key;

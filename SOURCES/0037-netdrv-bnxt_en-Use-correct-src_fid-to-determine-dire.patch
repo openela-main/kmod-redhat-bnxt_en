@@ -1,0 +1,54 @@
+From c6fc223ec3d9a83bd206c14fa5ad064cee76f21a Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:52 -0400
+Subject: [PATCH 37/96] [netdrv] bnxt_en: Use correct src_fid to determine
+ direction of the flow
+
+Message-id: <5d51854166a66f196a410e05a77ee9b68a95e4df.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276456
+O-Subject: [RHEL-8.2 PATCH 30/78] bnxt_en: Use correct src_fid to determine direction of the flow
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Direction of the flow is determined using src_fid. For an RX flow,
+src_fid is PF's fid and for TX flow, src_fid is VF's fid. Direction
+of the flow must be specified, when getting statistics for that flow.
+Currently, for DECAP flow, direction is determined incorrectly, i.e.,
+direction is initialized as TX for DECAP flow, instead of RX. Because
+of which, stats are not reported for this DECAP flow, though it is
+offloaded and there is traffic for that flow, resulting in flow age out.
+
+This patch fixes the problem by determining the DECAP flow's direction
+using correct fid.  Set the flow direction in all cases for consistency
+even if 64-bit flow handle is not used.
+
+Fixes: abd43a13525d ("bnxt_en: Support for 64-bit flow handle.")
+Signed-off-by: Venkat Duvvuru <venkatkumar.duvvuru@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 685ec6a81bb0d47faf1dba49437d5bdaede2733d)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c	2020-02-06 16:23:12.415543397 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_tc.c	2020-02-06 16:23:15.352516438 +0100
+@@ -1285,9 +1285,7 @@
+ 		goto free_node;
+ 
+ 	bnxt_tc_set_src_fid(bp, flow, src_fid);
+-
+-	if (bp->fw_cap & BNXT_FW_CAP_OVS_64BIT_HANDLE)
+-		bnxt_tc_set_flow_dir(bp, flow, src_fid);
++	bnxt_tc_set_flow_dir(bp, flow, flow->src_fid);
+ 
+ 	if (!bnxt_tc_can_offload(bp, flow)) {
+ 		rc = -EOPNOTSUPP;

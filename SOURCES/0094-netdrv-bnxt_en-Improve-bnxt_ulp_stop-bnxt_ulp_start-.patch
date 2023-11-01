@@ -1,0 +1,147 @@
+From c0fca90e2368d9632e50ad92844591bb15830aa3 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Fri, 6 Dec 2019 20:12:51 -0500
+Subject: [PATCH 94/96] [netdrv] bnxt_en: Improve
+ bnxt_ulp_stop()/bnxt_ulp_start() call sequence
+
+Message-id: <9db03065554258d9fea296da3c76419aa2bbc777.1575651772.git.jtoppins@redhat.com>
+Patchwork-id: 291385
+O-Subject: [PATCH rhel8 11/13] bnxt_en: Improve bnxt_ulp_stop()/bnxt_ulp_start() call sequence.
+Bugzilla: 1773724
+RH-Acked-by: Steve Best <sbest@redhat.com>
+RH-Acked-by: David Arcari <darcari@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+
+We call bnxt_ulp_stop() to notify the RDMA driver that some error or
+imminent reset is about to happen.  After that we always call
+some variants of bnxt_close().
+
+In the next patch, we will integrate the recently added error
+recovery with the RDMA driver.  In response to ulp_stop, the
+RDMA driver may free MSIX vectors and that will also trigger
+bnxt_close().  To avoid bnxt_close() from being called twice,
+we set a new flag after ulp_stop is called.  If the RDMA driver
+frees MSIX vectors while the new flag is set, we will not call
+bnxt_close(), knowing that it will happen in due course.
+
+With this change, we must make sure that the bnxt_close() call
+after ulp_stop will reset IRQ.  Modify bnxt_reset_task()
+accordingly if we call ulp_stop.
+
+Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit aa46dffff452f7c6d907c4e6a0062e2c53a87fc0)
+Bugzilla: 1773724
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=25154853
+Tested: simple boot test
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c     | 18 ++++++++++--------
+ drivers/net/ethernet/broadcom/bnxt/bnxt_ulp.c | 10 ++++++++--
+ drivers/net/ethernet/broadcom/bnxt/bnxt_ulp.h |  3 ++-
+ 3 files changed, 20 insertions(+), 11 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:22.576450128 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:22.982446401 +0100
+@@ -9932,12 +9932,15 @@
+ 	if (netif_running(bp->dev)) {
+ 		int rc;
+ 
+-		if (!silent)
++		if (silent) {
++			bnxt_close_nic(bp, false, false);
++			bnxt_open_nic(bp, false, false);
++		} else {
+ 			bnxt_ulp_stop(bp);
+-		bnxt_close_nic(bp, false, false);
+-		rc = bnxt_open_nic(bp, false, false);
+-		if (!silent && !rc)
+-			bnxt_ulp_start(bp);
++			bnxt_close_nic(bp, true, false);
++			rc = bnxt_open_nic(bp, true, false);
++			bnxt_ulp_start(bp, rc);
++		}
+ 	}
+ }
+ 
+@@ -12034,10 +12037,9 @@
+ 		if (!err && netif_running(netdev))
+ 			err = bnxt_open(netdev);
+ 
+-		if (!err) {
++		if (!err)
+ 			result = PCI_ERS_RESULT_RECOVERED;
+-			bnxt_ulp_start(bp);
+-		}
++		bnxt_ulp_start(bp, err);
+ 	}
+ 
+ 	if (result != PCI_ERS_RESULT_RECOVERED && netif_running(netdev))
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_ulp.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_ulp.c	2020-02-06 16:23:20.163472277 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_ulp.c	2020-02-06 16:23:22.982446401 +0100
+@@ -182,7 +182,7 @@
+ 
+ 	edev->ulp_tbl[ulp_id].msix_requested = 0;
+ 	edev->flags &= ~BNXT_EN_FLAG_MSIX_REQUESTED;
+-	if (netif_running(dev)) {
++	if (netif_running(dev) && !(edev->flags & BNXT_EN_FLAG_ULP_STOPPED)) {
+ 		bnxt_close_nic(bp, true, false);
+ 		bnxt_open_nic(bp, true, false);
+ 	}
+@@ -266,6 +266,7 @@
+ 	if (!edev)
+ 		return;
+ 
++	edev->flags |= BNXT_EN_FLAG_ULP_STOPPED;
+ 	for (i = 0; i < BNXT_MAX_ULP; i++) {
+ 		struct bnxt_ulp *ulp = &edev->ulp_tbl[i];
+ 
+@@ -276,7 +277,7 @@
+ 	}
+ }
+ 
+-void bnxt_ulp_start(struct bnxt *bp)
++void bnxt_ulp_start(struct bnxt *bp, int err)
+ {
+ 	struct bnxt_en_dev *edev = bp->edev;
+ 	struct bnxt_ulp_ops *ops;
+@@ -285,6 +286,11 @@
+ 	if (!edev)
+ 		return;
+ 
++	edev->flags &= ~BNXT_EN_FLAG_ULP_STOPPED;
++
++	if (err)
++		return;
++
+ 	for (i = 0; i < BNXT_MAX_ULP; i++) {
+ 		struct bnxt_ulp *ulp = &edev->ulp_tbl[i];
+ 
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_ulp.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_ulp.h	2020-02-06 16:22:53.036721279 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_ulp.h	2020-02-06 16:23:22.982446401 +0100
+@@ -64,6 +64,7 @@
+ 	#define BNXT_EN_FLAG_ROCE_CAP		(BNXT_EN_FLAG_ROCEV1_CAP | \
+ 						 BNXT_EN_FLAG_ROCEV2_CAP)
+ 	#define BNXT_EN_FLAG_MSIX_REQUESTED	0x4
++	#define BNXT_EN_FLAG_ULP_STOPPED	0x8
+ 	const struct bnxt_en_ops	*en_ops;
+ 	struct bnxt_ulp			ulp_tbl[BNXT_MAX_ULP];
+ };
+@@ -92,7 +93,7 @@
+ int bnxt_get_ulp_msix_base(struct bnxt *bp);
+ int bnxt_get_ulp_stat_ctxs(struct bnxt *bp);
+ void bnxt_ulp_stop(struct bnxt *bp);
+-void bnxt_ulp_start(struct bnxt *bp);
++void bnxt_ulp_start(struct bnxt *bp, int err);
+ void bnxt_ulp_sriov_cfg(struct bnxt *bp, int num_vfs);
+ void bnxt_ulp_shutdown(struct bnxt *bp);
+ void bnxt_ulp_irq_stop(struct bnxt *bp);

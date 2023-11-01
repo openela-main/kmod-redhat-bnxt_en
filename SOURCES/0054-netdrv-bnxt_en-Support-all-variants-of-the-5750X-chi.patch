@@ -1,0 +1,54 @@
+From 0a5ec2abf3d05d1aa939458395c5777f692326c9 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:09 -0400
+Subject: [PATCH 54/96] [netdrv] bnxt_en: Support all variants of the 5750X
+ chip family
+
+Message-id: <e89cb2d54dda1f163f15321c9f0f66a8b5ed915e.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276477
+O-Subject: [RHEL-8.2 PATCH 47/78] bnxt_en: Support all variants of the 5750X chip family.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Define the 57508, 57504, and 57502 chip IDs that are all part of the
+BNXT_CHIP_P5 family of chips.
+
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 1dc88b97a020148c0eea6c595d511a19c2fab347)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:17.409497557 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:17.543496327 +0100
+@@ -1362,7 +1362,9 @@
+ 
+ #define CHIP_NUM_5745X		0xd730
+ 
+-#define CHIP_NUM_57500		0x1750
++#define CHIP_NUM_57508		0x1750
++#define CHIP_NUM_57504		0x1751
++#define CHIP_NUM_57502		0x1752
+ 
+ #define CHIP_NUM_58802		0xd802
+ #define CHIP_NUM_58804		0xd804
+@@ -1464,7 +1466,9 @@
+ 
+ /* Chip class phase 5 */
+ #define BNXT_CHIP_P5(bp)			\
+-	((bp)->chip_num == CHIP_NUM_57500)
++	((bp)->chip_num == CHIP_NUM_57508 ||	\
++	 (bp)->chip_num == CHIP_NUM_57504 ||	\
++	 (bp)->chip_num == CHIP_NUM_57502)
+ 
+ /* Chip class phase 4.x */
+ #define BNXT_CHIP_P4(bp)			\

@@ -1,0 +1,128 @@
+From 7b521924055a466fc15021ba7c0fbd3833739abf Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:34 -0400
+Subject: [PATCH 19/96] [netdrv] bnxt_en: Refactor bnxt_alloc_stats()
+
+Message-id: <0b455fb7258aebee3261769c74274ce59cd30970.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276441
+O-Subject: [RHEL-8.2 PATCH 12/78] bnxt_en: Refactor bnxt_alloc_stats().
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Reverse the condition of the large "if" block and return early.  This
+will simplify the follow up patch to add PCIe statistics.
+
+Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit a220eabc8887e3c02d308a9960e92a70cbd00b52)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 75 +++++++++++++++----------------
+ 1 file changed, 36 insertions(+), 39 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.563542039 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.831539579 +0100
+@@ -3446,56 +3446,53 @@
+ 		cpr->hw_stats_ctx_id = INVALID_STATS_CTX_ID;
+ 	}
+ 
+-	if (BNXT_PF(bp) && bp->chip_num != CHIP_NUM_58700) {
+-		if (bp->hw_rx_port_stats)
+-			goto alloc_ext_stats;
+-
+-		bp->hw_port_stats_size = sizeof(struct rx_port_stats) +
+-					 sizeof(struct tx_port_stats) + 1024;
+-
+-		bp->hw_rx_port_stats =
+-			dma_alloc_coherent(&pdev->dev, bp->hw_port_stats_size,
+-					   &bp->hw_rx_port_stats_map,
+-					   GFP_KERNEL);
+-		if (!bp->hw_rx_port_stats)
+-			return -ENOMEM;
++	if (BNXT_VF(bp) || bp->chip_num == CHIP_NUM_58700)
++		return 0;
+ 
+-		bp->hw_tx_port_stats = (void *)(bp->hw_rx_port_stats + 1) +
+-				       512;
+-		bp->hw_tx_port_stats_map = bp->hw_rx_port_stats_map +
+-					   sizeof(struct rx_port_stats) + 512;
+-		bp->flags |= BNXT_FLAG_PORT_STATS;
++	if (bp->hw_rx_port_stats)
++		goto alloc_ext_stats;
+ 
+-alloc_ext_stats:
+-		/* Display extended statistics only if FW supports it */
+-		if (bp->hwrm_spec_code < 0x10804 ||
+-		    bp->hwrm_spec_code == 0x10900)
+-			return 0;
++	bp->hw_port_stats_size = sizeof(struct rx_port_stats) +
++				 sizeof(struct tx_port_stats) + 1024;
+ 
+-		if (bp->hw_rx_port_stats_ext)
+-			goto alloc_tx_ext_stats;
++	bp->hw_rx_port_stats =
++		dma_alloc_coherent(&pdev->dev, bp->hw_port_stats_size,
++				   &bp->hw_rx_port_stats_map,
++				   GFP_KERNEL);
++	if (!bp->hw_rx_port_stats)
++		return -ENOMEM;
++
++	bp->hw_tx_port_stats = (void *)(bp->hw_rx_port_stats + 1) + 512;
++	bp->hw_tx_port_stats_map = bp->hw_rx_port_stats_map +
++				   sizeof(struct rx_port_stats) + 512;
++	bp->flags |= BNXT_FLAG_PORT_STATS;
+ 
+-		bp->hw_rx_port_stats_ext =
+-			dma_alloc_coherent(&pdev->dev,
+-					   sizeof(struct rx_port_stats_ext),
+-					   &bp->hw_rx_port_stats_ext_map,
+-					   GFP_KERNEL);
+-		if (!bp->hw_rx_port_stats_ext)
+-			return 0;
++alloc_ext_stats:
++	/* Display extended statistics only if FW supports it */
++	if (bp->hwrm_spec_code < 0x10804 || bp->hwrm_spec_code == 0x10900)
++		return 0;
++
++	if (bp->hw_rx_port_stats_ext)
++		goto alloc_tx_ext_stats;
++
++	bp->hw_rx_port_stats_ext =
++		dma_alloc_coherent(&pdev->dev, sizeof(struct rx_port_stats_ext),
++				   &bp->hw_rx_port_stats_ext_map, GFP_KERNEL);
++	if (!bp->hw_rx_port_stats_ext)
++		return 0;
+ 
+ alloc_tx_ext_stats:
+-		if (bp->hw_tx_port_stats_ext)
+-			return 0;
++	if (bp->hw_tx_port_stats_ext)
++		return 0;
+ 
+-		if (bp->hwrm_spec_code >= 0x10902) {
+-			bp->hw_tx_port_stats_ext =
+-				dma_alloc_coherent(&pdev->dev,
+-						   sizeof(struct tx_port_stats_ext),
+-						   &bp->hw_tx_port_stats_ext_map,
+-						   GFP_KERNEL);
+-		}
+-		bp->flags |= BNXT_FLAG_PORT_STATS_EXT;
++	if (bp->hwrm_spec_code >= 0x10902) {
++		bp->hw_tx_port_stats_ext =
++			dma_alloc_coherent(&pdev->dev,
++					   sizeof(struct tx_port_stats_ext),
++					   &bp->hw_tx_port_stats_ext_map,
++					   GFP_KERNEL);
+ 	}
++	bp->flags |= BNXT_FLAG_PORT_STATS_EXT;
+ 	return 0;
+ }
+ 

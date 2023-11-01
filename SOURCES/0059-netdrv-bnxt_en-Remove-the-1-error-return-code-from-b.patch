@@ -1,0 +1,59 @@
+From 6f33f93474d2f2ce4c358a87236dfd597bc60e5f Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:14 -0400
+Subject: [PATCH 59/96] [netdrv] bnxt_en: Remove the -1 error return code from
+ bnxt_hwrm_do_send_msg()
+
+Message-id: <e2ecb6aac0f162d113a64f78a026cfaf3d2d30ed.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276473
+O-Subject: [RHEL-8.2 PATCH 52/78] bnxt_en: Remove the -1 error return code from bnxt_hwrm_do_send_msg().
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Replace the non-standard -1 code with -EBUSY when there is no firmware
+response after waiting for the maximum timeout.
+
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit a935cb7ec449bca1adf806d7fb00f5032b63c6e0)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:17.921492857 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:18.179490489 +0100
+@@ -4167,7 +4167,7 @@
+ 		if (bp->hwrm_intr_seq_id != (u16)~seq_id) {
+ 			netdev_err(bp->dev, "Resp cmpl intr err msg: 0x%x\n",
+ 				   le16_to_cpu(req->req_type));
+-			return -1;
++			return -EBUSY;
+ 		}
+ 		len = (le32_to_cpu(*resp_len) & HWRM_RESP_LEN_MASK) >>
+ 		      HWRM_RESP_LEN_SFT;
+@@ -4195,7 +4195,7 @@
+ 				   HWRM_TOTAL_TIMEOUT(i),
+ 				   le16_to_cpu(req->req_type),
+ 				   le16_to_cpu(req->seq_id), len);
+-			return -1;
++			return -EBUSY;
+ 		}
+ 
+ 		/* Last byte of resp contains valid bit */
+@@ -4213,7 +4213,7 @@
+ 				   HWRM_TOTAL_TIMEOUT(i),
+ 				   le16_to_cpu(req->req_type),
+ 				   le16_to_cpu(req->seq_id), len, *valid);
+-			return -1;
++			return -EBUSY;
+ 		}
+ 	}
+ 
