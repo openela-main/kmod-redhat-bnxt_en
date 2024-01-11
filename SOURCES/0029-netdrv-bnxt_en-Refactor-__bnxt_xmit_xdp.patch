@@ -1,0 +1,149 @@
+From 21e44965c1de18146e7d7b29612751eeac02968a Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:44 -0400
+Subject: [PATCH 29/96] [netdrv] bnxt_en: Refactor __bnxt_xmit_xdp()
+
+Message-id: <da1238f5df4b80f5906517c6bbc1dcf7939ce6ba.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276447
+O-Subject: [RHEL-8.2 PATCH 22/78] bnxt_en: Refactor __bnxt_xmit_xdp().
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+__bnxt_xmit_xdp() is used by XDP_TX and ethtool loopback packet transmit.
+Refactor it so that it can be re-used by the XDP_REDIRECT logic.
+Restructure the TX interrupt handler logic to cleanly separate XDP_TX
+logic in preparation for XDP_REDIRECT.
+
+Acked-by: Andy Gospodarek <gospo@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit c1ba92a86db24dc9ca2648473d4820979a0d8a4c)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h         |  1 +
+ drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c |  2 +-
+ drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.c     | 33 ++++++++++++++++-------
+ drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.h     |  5 ++--
+ 4 files changed, 28 insertions(+), 13 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:13.662531951 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:14.227526765 +0100
+@@ -596,6 +596,7 @@
+ 	DEFINE_DMA_UNMAP_ADDR(mapping);
+ 	u8			is_gso;
+ 	u8			is_push;
++	u8			action;
+ 	union {
+ 		unsigned short		nr_frags;
+ 		u16			rx_prod;
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:14.076528151 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:14.228526755 +0100
+@@ -2799,7 +2799,7 @@
+ 		dev_kfree_skb(skb);
+ 		return -EIO;
+ 	}
+-	__bnxt_xmit_xdp(bp, txr, map, pkt_size, 0);
++	bnxt_xmit_bd(bp, txr, map, pkt_size);
+ 
+ 	/* Sync BD data before updating doorbell */
+ 	wmb();
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.c	2020-02-06 16:23:14.076528151 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.c	2020-02-06 16:23:14.228526755 +0100
+@@ -19,8 +19,9 @@
+ #include "bnxt.h"
+ #include "bnxt_xdp.h"
+ 
+-void __bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
+-		     dma_addr_t mapping, u32 len, u16 rx_prod)
++struct bnxt_sw_tx_bd *bnxt_xmit_bd(struct bnxt *bp,
++				   struct bnxt_tx_ring_info *txr,
++				   dma_addr_t mapping, u32 len)
+ {
+ 	struct bnxt_sw_tx_bd *tx_buf;
+ 	struct tx_bd *txbd;
+@@ -29,7 +30,6 @@
+ 
+ 	prod = txr->tx_prod;
+ 	tx_buf = &txr->tx_buf_ring[prod];
+-	tx_buf->rx_prod = rx_prod;
+ 
+ 	txbd = &txr->tx_desc_ring[TX_RING(prod)][TX_IDX(prod)];
+ 	flags = (len << TX_BD_LEN_SHIFT) | (1 << TX_BD_FLAGS_BD_CNT_SHIFT) |
+@@ -40,30 +40,43 @@
+ 
+ 	prod = NEXT_TX(prod);
+ 	txr->tx_prod = prod;
++	return tx_buf;
++}
++
++static void __bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
++			    dma_addr_t mapping, u32 len, u16 rx_prod)
++{
++	struct bnxt_sw_tx_bd *tx_buf;
++
++	tx_buf = bnxt_xmit_bd(bp, txr, mapping, len);
++	tx_buf->rx_prod = rx_prod;
++	tx_buf->action = XDP_TX;
+ }
+ 
+ void bnxt_tx_int_xdp(struct bnxt *bp, struct bnxt_napi *bnapi, int nr_pkts)
+ {
+ 	struct bnxt_tx_ring_info *txr = bnapi->tx_ring;
+ 	struct bnxt_rx_ring_info *rxr = bnapi->rx_ring;
++	bool rx_doorbell_needed = false;
+ 	struct bnxt_sw_tx_bd *tx_buf;
+ 	u16 tx_cons = txr->tx_cons;
+ 	u16 last_tx_cons = tx_cons;
+-	u16 rx_prod;
+ 	int i;
+ 
+ 	for (i = 0; i < nr_pkts; i++) {
+-		last_tx_cons = tx_cons;
++		tx_buf = &txr->tx_buf_ring[tx_cons];
++
++		if (tx_buf->action == XDP_TX) {
++			rx_doorbell_needed = true;
++			last_tx_cons = tx_cons;
++		}
+ 		tx_cons = NEXT_TX(tx_cons);
+ 	}
+ 	txr->tx_cons = tx_cons;
+-	if (bnxt_tx_avail(bp, txr) == bp->tx_ring_size) {
+-		rx_prod = rxr->rx_prod;
+-	} else {
++	if (rx_doorbell_needed) {
+ 		tx_buf = &txr->tx_buf_ring[last_tx_cons];
+-		rx_prod = tx_buf->rx_prod;
++		bnxt_db_write(bp, &rxr->rx_db, tx_buf->rx_prod);
+ 	}
+-	bnxt_db_write(bp, &rxr->rx_db, rx_prod);
+ }
+ 
+ /* returns the following:
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.h	2020-02-06 16:23:14.076528151 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_xdp.h	2020-02-06 16:23:14.228526755 +0100
+@@ -10,8 +10,9 @@
+ #ifndef BNXT_XDP_H
+ #define BNXT_XDP_H
+ 
+-void __bnxt_xmit_xdp(struct bnxt *bp, struct bnxt_tx_ring_info *txr,
+-		     dma_addr_t mapping, u32 len, u16 rx_prod);
++struct bnxt_sw_tx_bd *bnxt_xmit_bd(struct bnxt *bp,
++				   struct bnxt_tx_ring_info *txr,
++				   dma_addr_t mapping, u32 len);
+ void bnxt_tx_int_xdp(struct bnxt *bp, struct bnxt_napi *bnapi, int nr_pkts);
+ bool bnxt_rx_xdp(struct bnxt *bp, struct bnxt_rx_ring_info *rxr, u16 cons,
+ 		 struct page *page, u8 **data_ptr, unsigned int *len,

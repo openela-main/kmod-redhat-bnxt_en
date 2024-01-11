@@ -1,0 +1,182 @@
+From 52051cf0ae9b711f99261f06b8dd923fbc6806fa Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:03 -0400
+Subject: [PATCH 48/96] [netdrv] bnxt_en: Add TPA ID mapping logic for 57500
+ chips
+
+Message-id: <57e311cc4754abce34f1ea7baed45aa1740f0679.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276467
+O-Subject: [RHEL-8.2 PATCH 41/78] bnxt_en: Add TPA ID mapping logic for 57500 chips.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+The new TPA feature on 57500 supports a larger number of concurrent TPAs
+(up to 1024) divided among the functions.  We need to add some logic to
+map the hardware TPA ID to a software index that keeps track of each TPA
+in progress.  A 1:1 direct mapping without translation would be too
+wasteful as we would have to allocate 1024 TPA structures for each RX
+ring on each PCI function.
+
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit ec4d8e7cf024e42def027531676918048e5c7982)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 46 +++++++++++++++++++++++++++++--
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h |  9 ++++++
+ 2 files changed, 53 insertions(+), 2 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:16.622504781 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:16.749503615 +0100
+@@ -1154,6 +1154,33 @@
+ 	rxr->rx_next_cons = 0xffff;
+ }
+ 
++static u16 bnxt_alloc_agg_idx(struct bnxt_rx_ring_info *rxr, u16 agg_id)
++{
++	struct bnxt_tpa_idx_map *map = rxr->rx_tpa_idx_map;
++	u16 idx = agg_id & MAX_TPA_P5_MASK;
++
++	if (test_bit(idx, map->agg_idx_bmap))
++		idx = find_first_zero_bit(map->agg_idx_bmap,
++					  BNXT_AGG_IDX_BMAP_SIZE);
++	__set_bit(idx, map->agg_idx_bmap);
++	map->agg_id_tbl[agg_id] = idx;
++	return idx;
++}
++
++static void bnxt_free_agg_idx(struct bnxt_rx_ring_info *rxr, u16 idx)
++{
++	struct bnxt_tpa_idx_map *map = rxr->rx_tpa_idx_map;
++
++	__clear_bit(idx, map->agg_idx_bmap);
++}
++
++static u16 bnxt_lookup_agg_idx(struct bnxt_rx_ring_info *rxr, u16 agg_id)
++{
++	struct bnxt_tpa_idx_map *map = rxr->rx_tpa_idx_map;
++
++	return map->agg_id_tbl[agg_id];
++}
++
+ static void bnxt_tpa_start(struct bnxt *bp, struct bnxt_rx_ring_info *rxr,
+ 			   struct rx_tpa_start_cmp *tpa_start,
+ 			   struct rx_tpa_start_cmp_ext *tpa_start1)
+@@ -1164,10 +1191,12 @@
+ 	struct rx_bd *prod_bd;
+ 	dma_addr_t mapping;
+ 
+-	if (bp->flags & BNXT_FLAG_CHIP_P5)
++	if (bp->flags & BNXT_FLAG_CHIP_P5) {
+ 		agg_id = TPA_START_AGG_ID_P5(tpa_start);
+-	else
++		agg_id = bnxt_alloc_agg_idx(rxr, agg_id);
++	} else {
+ 		agg_id = TPA_START_AGG_ID(tpa_start);
++	}
+ 	cons = tpa_start->rx_tpa_start_cmp_opaque;
+ 	prod = rxr->rx_prod;
+ 	cons_rx_buf = &rxr->rx_buf_ring[cons];
+@@ -1447,6 +1476,7 @@
+ 
+ 	if (bp->flags & BNXT_FLAG_CHIP_P5) {
+ 		agg_id = TPA_END_AGG_ID_P5(tpa_end);
++		agg_id = bnxt_lookup_agg_idx(rxr, agg_id);
+ 		agg_bufs = TPA_END_AGG_BUFS_P5(tpa_end1);
+ 		tpa_info = &rxr->rx_tpa[agg_id];
+ 		if (unlikely(agg_bufs != tpa_info->agg_count)) {
+@@ -1456,6 +1486,7 @@
+ 		}
+ 		tpa_info->agg_count = 0;
+ 		*event |= BNXT_AGG_EVENT;
++		bnxt_free_agg_idx(rxr, agg_id);
+ 		idx = agg_id;
+ 		gro = !!(bp->flags & BNXT_FLAG_GRO);
+ 	} else {
+@@ -1562,6 +1593,7 @@
+ 	u16 agg_id = TPA_AGG_AGG_ID(rx_agg);
+ 	struct bnxt_tpa_info *tpa_info;
+ 
++	agg_id = bnxt_lookup_agg_idx(rxr, agg_id);
+ 	tpa_info = &rxr->rx_tpa[agg_id];
+ 	BUG_ON(tpa_info->agg_count >= MAX_SKB_FRAGS);
+ 	tpa_info->agg_arr[tpa_info->agg_count++] = *rx_agg;
+@@ -2386,6 +2418,7 @@
+ 	max_agg_idx = bp->rx_agg_nr_pages * RX_DESC_CNT;
+ 	for (i = 0; i < bp->rx_nr_rings; i++) {
+ 		struct bnxt_rx_ring_info *rxr = &bp->rx_ring[i];
++		struct bnxt_tpa_idx_map *map;
+ 		int j;
+ 
+ 		if (rxr->rx_tpa) {
+@@ -2456,6 +2489,9 @@
+ 			__free_page(rxr->rx_page);
+ 			rxr->rx_page = NULL;
+ 		}
++		map = rxr->rx_tpa_idx_map;
++		if (map)
++			memset(map->agg_idx_bmap, 0, sizeof(map->agg_idx_bmap));
+ 	}
+ }
+ 
+@@ -2551,6 +2587,8 @@
+ 	for (i = 0; i < bp->rx_nr_rings; i++) {
+ 		struct bnxt_rx_ring_info *rxr = &bp->rx_ring[i];
+ 
++		kfree(rxr->rx_tpa_idx_map);
++		rxr->rx_tpa_idx_map = NULL;
+ 		if (rxr->rx_tpa) {
+ 			kfree(rxr->rx_tpa[0].agg_arr);
+ 			rxr->rx_tpa[0].agg_arr = NULL;
+@@ -2589,6 +2627,10 @@
+ 			return -ENOMEM;
+ 		for (j = 1; j < bp->max_tpa; j++)
+ 			rxr->rx_tpa[j].agg_arr = agg + j * MAX_SKB_FRAGS;
++		rxr->rx_tpa_idx_map = kzalloc(sizeof(*rxr->rx_tpa_idx_map),
++					      GFP_KERNEL);
++		if (!rxr->rx_tpa_idx_map)
++			return -ENOMEM;
+ 	}
+ 	return 0;
+ }
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:16.116509425 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:16.750503606 +0100
+@@ -555,6 +555,7 @@
+ 
+ #define MAX_TPA		64
+ #define MAX_TPA_P5	256
++#define MAX_TPA_P5_MASK	(MAX_TPA_P5 - 1)
+ #define MAX_TPA_SEGS_P5	0x3f
+ 
+ #if (BNXT_PAGE_SHIFT == 16)
+@@ -841,6 +842,13 @@
+ 	struct rx_agg_cmp	*agg_arr;
+ };
+ 
++#define BNXT_AGG_IDX_BMAP_SIZE	(MAX_TPA_P5 / BITS_PER_LONG)
++
++struct bnxt_tpa_idx_map {
++	u16		agg_id_tbl[1024];
++	unsigned long	agg_idx_bmap[BNXT_AGG_IDX_BMAP_SIZE];
++};
++
+ struct bnxt_rx_ring_info {
+ 	struct bnxt_napi	*bnapi;
+ 	u16			rx_prod;
+@@ -868,6 +876,7 @@
+ 	dma_addr_t		rx_agg_desc_mapping[MAX_RX_AGG_PAGES];
+ 
+ 	struct bnxt_tpa_info	*rx_tpa;
++	struct bnxt_tpa_idx_map *rx_tpa_idx_map;
+ 
+ 	struct bnxt_ring_struct	rx_ring_struct;
+ 	struct bnxt_ring_struct	rx_agg_ring_struct;

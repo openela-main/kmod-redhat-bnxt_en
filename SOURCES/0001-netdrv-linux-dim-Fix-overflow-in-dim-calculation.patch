@@ -1,0 +1,61 @@
+From 2bb4fd965ddb1682b18a937d61be197a242bc803 Mon Sep 17 00:00:00 2001
+From: Ivan Vecera <ivecera@redhat.com>
+Date: Wed, 7 Aug 2019 14:26:29 -0400
+Subject: [PATCH 01/96] [netdrv] linux/dim: Fix overflow in dim calculation
+
+Message-id: <20190807142629.15867-1-ivecera@redhat.com>
+Patchwork-id: 268439
+O-Subject: [RHEL-8.2 net PATCH 9/9] linux/dim: Fix overflow in dim calculation
+Bugzilla: 1737807
+RH-Acked-by: Kamal Heib <kheib@redhat.com>
+RH-Acked-by: Corinna Vinschen <vinschen@redhat.com>
+RH-Acked-by: Jonathan Toppins <jtoppins@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+
+Bugzilla: http://bugzilla.redhat.com/show_bug.cgi?id=1737807
+
+Upstream commit(s):
+commit f06d0ca45827a5790d7508de4759aed976933d4d
+Author: Yamin Friedman <yaminf@mellanox.com>
+Date:   Tue Jul 23 10:22:47 2019 +0300
+
+    linux/dim: Fix overflow in dim calculation
+
+    While using net_dim, a dim_sample was used without ever initializing the
+    comps value. Added use of DIV_ROUND_DOWN_ULL() to prevent potential
+    overflow, it should not be a problem to save the final result in an int
+    because after the division by epms the value should not be larger than a
+    few thousand.
+
+    [ 1040.127124] UBSAN: Undefined behaviour in lib/dim/dim.c:78:23
+    [ 1040.130118] signed integer overflow:
+    [ 1040.131643] 134718714 * 100 cannot be represented in type 'int'
+
+    Fixes: 398c2b05bbee ("linux/dim: Add completions count to dim_sample")
+    Signed-off-by: Yamin Friedman <yaminf@mellanox.com>
+    Signed-off-by: Leon Romanovsky <leonro@mellanox.com>
+    Acked-by: Saeed Mahameed <saeedm@mellanox.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+
+Signed-off-by: Ivan Vecera <ivecera@redhat.com>
+Signed-off-by: Jiri Benc <jbenc@redhat.com>
+
+Signed-off-by: Timothy Redaelli <tredaelli@redhat.com>
+Signed-off-by: Phillip Lougher <plougher@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:22:57.646678963 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:10.933557001 +0100
+@@ -2132,7 +2132,7 @@
+ 		}
+ 	}
+ 	if (bp->flags & BNXT_FLAG_DIM) {
+-		struct net_dim_sample dim_sample;
++		struct net_dim_sample dim_sample = {};
+ 
+ 		net_dim_sample(cpr->event_ctr,
+ 			       cpr->rx_packets,

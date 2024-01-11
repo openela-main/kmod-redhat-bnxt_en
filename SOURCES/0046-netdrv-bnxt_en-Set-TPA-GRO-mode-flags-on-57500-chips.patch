@@ -1,0 +1,72 @@
+From 45e01e8de10f92ab0ae02baf23cbed93b7dae48a Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:01 -0400
+Subject: [PATCH 46/96] [netdrv] bnxt_en: Set TPA GRO mode flags on 57500 chips
+ properly
+
+Message-id: <6382b11d2a91ab884bfc45379b12c9f5d23bc48b.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276464
+O-Subject: [RHEL-8.2 PATCH 39/78] bnxt_en: Set TPA GRO mode flags on 57500 chips properly.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+On 57500 chips, hardware GRO mode cannot be determined from the TPA
+end, so we need to check bp->flags to determine if we are in hardware
+GRO mode or not.  Modify bnxt_set_features so that the TPA flags
+in bp->flags don't change until the device is closed.  This will ensure
+that the fast path can safely rely on bp->flags to determine the
+TPA mode.
+
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit f45b7b78c619cd73c7ca25b68c6ba9653b8e4a0a)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:16.376507039 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:16.499505910 +0100
+@@ -9364,7 +9364,8 @@
+ 	if (changes & BNXT_FLAG_TPA) {
+ 		update_tpa = true;
+ 		if ((bp->flags & BNXT_FLAG_TPA) == 0 ||
+-		    (flags & BNXT_FLAG_TPA) == 0)
++		    (flags & BNXT_FLAG_TPA) == 0 ||
++		    (bp->flags & BNXT_FLAG_CHIP_P5))
+ 			re_init = true;
+ 	}
+ 
+@@ -9374,9 +9375,8 @@
+ 	if (flags != bp->flags) {
+ 		u32 old_flags = bp->flags;
+ 
+-		bp->flags = flags;
+-
+ 		if (!test_bit(BNXT_STATE_OPEN, &bp->state)) {
++			bp->flags = flags;
+ 			if (update_tpa)
+ 				bnxt_set_ring_params(bp);
+ 			return rc;
+@@ -9384,12 +9384,14 @@
+ 
+ 		if (re_init) {
+ 			bnxt_close_nic(bp, false, false);
++			bp->flags = flags;
+ 			if (update_tpa)
+ 				bnxt_set_ring_params(bp);
+ 
+ 			return bnxt_open_nic(bp, false, false);
+ 		}
+ 		if (update_tpa) {
++			bp->flags = flags;
+ 			rc = bnxt_set_tpa(bp,
+ 					  (flags & BNXT_FLAG_TPA) ?
+ 					  true : false);

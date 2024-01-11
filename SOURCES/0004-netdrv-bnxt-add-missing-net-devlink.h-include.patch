@@ -1,0 +1,47 @@
+From 67688aa4d866e8db3ce8ffcece88dfce0615291b Mon Sep 17 00:00:00 2001
+From: Petr Oros <poros@redhat.com>
+Date: Thu, 5 Sep 2019 10:00:59 -0400
+Subject: [PATCH 04/96] [netdrv] bnxt: add missing net/devlink.h include
+
+Message-id: <53e744a37a2f5e808c071e9b3f668df45dde6438.1567595345.git.poros@redhat.com>
+Patchwork-id: 270938
+O-Subject: [RHEL8.2 net PATCH 03/15] bnxt: add missing net/devlink.h include
+Bugzilla: 1737133
+RH-Acked-by: Jonathan Toppins <jtoppins@redhat.com>
+RH-Acked-by: Neil Horman <nhorman@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Ivan Vecera <ivecera@redhat.com>
+
+Bugzilla: http://bugzilla.redhat.com/show_bug.cgi?id=1737133
+
+Upstream commit(s):
+commit 477edb7806b652043750aa33c584b9838a7c2123
+Author: Jiri Pirko <jiri@mellanox.com>
+Date:   Sun Mar 24 11:14:25 2019 +0100
+
+    bnxt: add missing net/devlink.h include
+
+    devlink functions are in use, so include the related header file.
+
+    Signed-off-by: Jiri Pirko <jiri@mellanox.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+
+Signed-off-by: Petr Oros <poros@redhat.com>
+Signed-off-by: Timothy Redaelli <tredaelli@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.278553834 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.413552595 +0100
+@@ -9,6 +9,7 @@
+ 
+ #include <linux/pci.h>
+ #include <linux/netdevice.h>
++#include <net/devlink.h>
+ #include "bnxt_hsi.h"
+ #include "bnxt.h"
+ #include "bnxt_vfr.h"

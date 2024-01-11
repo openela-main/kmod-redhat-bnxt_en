@@ -1,0 +1,151 @@
+From 36a2341eb0c9dbff43d31d3ed2ac50acd1b56b47 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Fri, 6 Dec 2019 20:12:48 -0500
+Subject: [PATCH 92/96] [netdrv] bnxt_en: Add support to collect crash dump via
+ ethtool
+
+Message-id: <cb065cce89746b909d8b6c83587e9bb55465950c.1575651772.git.jtoppins@redhat.com>
+Patchwork-id: 291386
+O-Subject: [PATCH rhel8 08/13] bnxt_en: Add support to collect crash dump via ethtool
+Bugzilla: 1773724
+RH-Acked-by: Steve Best <sbest@redhat.com>
+RH-Acked-by: David Arcari <darcari@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+
+Driver supports 2 types of core dumps.
+
+1. Live dump - Firmware dump when system is up and running.
+2. Crash dump - Dump which is collected during firmware crash
+                that can be retrieved after recovery.
+Crash dump is currently supported only on specific 58800 chips
+which can be retrieved using OP-TEE API only, as firmware cannot
+access this region directly.
+
+User needs to set the dump flag using following command before
+initiating the dump collection:
+
+    $ ethtool -W|--set-dump eth0 N
+
+Where N is "0" for live dump and "1" for crash dump
+
+Command to collect the dump after setting the flag:
+
+    $ ethtool -w eth0 data Filename
+
+v3: Modify set_dump to support even when CONFIG_TEE_BNXT_FW=n.
+Also change log message to netdev_info().
+
+Cc: Jakub Kicinski <jakub.kicinski@netronome.com>
+Cc: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Signed-off-by: Sheetal Tigadoli <sheetal.tigadoli@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 0b0eacf3c83cb292c6eef55c76d5138c9302dc20)
+Bugzilla: 1773724
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=25154853
+Tested: simple boot test
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h         |  3 ++
+ drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c | 37 +++++++++++++++++++++--
+ drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.h |  2 ++
+ 3 files changed, 40 insertions(+), 2 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:22.576450128 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:22.708448916 +0100
+@@ -1807,6 +1807,9 @@
+ 
+ 	u8			num_leds;
+ 	struct bnxt_led_info	leds[BNXT_MAX_LED];
++	u16			dump_flag;
++#define BNXT_DUMP_LIVE		0
++#define BNXT_DUMP_CRASH		1
+ 
+ 	struct bpf_prog		*xdp_prog;
+ 
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:21.412460813 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.c	2020-02-06 16:23:22.709448907 +0100
+@@ -3311,6 +3311,24 @@
+ 	return rc;
+ }
+ 
++static int bnxt_set_dump(struct net_device *dev, struct ethtool_dump *dump)
++{
++	struct bnxt *bp = netdev_priv(dev);
++
++	if (dump->flag > BNXT_DUMP_CRASH) {
++		netdev_info(dev, "Supports only Live(0) and Crash(1) dumps.\n");
++		return -EINVAL;
++	}
++
++	if (!IS_ENABLED(CONFIG_TEE_BNXT_FW) && dump->flag == BNXT_DUMP_CRASH) {
++		netdev_info(dev, "Cannot collect crash dump as TEE_BNXT_FW config option is not enabled.\n");
++		return -EOPNOTSUPP;
++	}
++
++	bp->dump_flag = dump->flag;
++	return 0;
++}
++
+ static int bnxt_get_dump_flag(struct net_device *dev, struct ethtool_dump *dump)
+ {
+ 	struct bnxt *bp = netdev_priv(dev);
+@@ -3323,7 +3341,12 @@
+ 			bp->ver_resp.hwrm_fw_bld_8b << 8 |
+ 			bp->ver_resp.hwrm_fw_rsvd_8b;
+ 
+-	return bnxt_get_coredump(bp, NULL, &dump->len);
++	dump->flag = bp->dump_flag;
++	if (bp->dump_flag == BNXT_DUMP_CRASH)
++		dump->len = BNXT_CRASH_DUMP_LEN;
++	else
++		bnxt_get_coredump(bp, NULL, &dump->len);
++	return 0;
+ }
+ 
+ static int bnxt_get_dump_data(struct net_device *dev, struct ethtool_dump *dump,
+@@ -3336,7 +3359,16 @@
+ 
+ 	memset(buf, 0, dump->len);
+ 
+-	return bnxt_get_coredump(bp, buf, &dump->len);
++	dump->flag = bp->dump_flag;
++	if (dump->flag == BNXT_DUMP_CRASH) {
++#ifdef CONFIG_TEE_BNXT_FW
++		return tee_bnxt_copy_coredump(buf, 0, dump->len);
++#endif
++	} else {
++		return bnxt_get_coredump(bp, buf, &dump->len);
++	}
++
++	return 0;
+ }
+ 
+ void bnxt_ethtool_init(struct bnxt *bp)
+@@ -3446,6 +3478,7 @@
+ 	.set_phys_id		= bnxt_set_phys_id,
+ 	.self_test		= bnxt_self_test,
+ 	.reset			= bnxt_reset,
++	.set_dump		= bnxt_set_dump,
+ 	.get_dump_flag		= bnxt_get_dump_flag,
+ 	.get_dump_data		= bnxt_get_dump_data,
+ };
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.h	2020-02-06 16:22:53.098720710 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_ethtool.h	2020-02-06 16:23:22.709448907 +0100
+@@ -59,6 +59,8 @@
+ 	#define HWRM_DBG_CMN_FLAGS_MORE	1
+ };
+ 
++#define BNXT_CRASH_DUMP_LEN	(8 << 20)
++
+ #define BNXT_LED_DFLT_ENA				\
+ 	(PORT_LED_CFG_REQ_ENABLES_LED0_ID |		\
+ 	 PORT_LED_CFG_REQ_ENABLES_LED0_STATE |		\

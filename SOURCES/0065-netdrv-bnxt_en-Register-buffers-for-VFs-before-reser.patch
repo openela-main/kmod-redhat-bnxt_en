@@ -1,0 +1,62 @@
+From 65fc42a0bb19a85798469eeb2c61b754029414ef Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:20 -0400
+Subject: [PATCH 65/96] [netdrv] bnxt_en: Register buffers for VFs before
+ reserving resources
+
+Message-id: <3494363ea29ad1d7fa4ad16dbe767e2c30222282.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276480
+O-Subject: [RHEL-8.2 PATCH 58/78] bnxt_en: Register buffers for VFs before reserving resources.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+When VFs need to be reconfigured dynamically after firmwware reset, the
+configuration sequence on the PF needs to be changed to register the VF
+buffers first.  Otherwise, some VF firmware commands may not succeed as
+there may not be PF buffers ready for the re-directed firmware commands.
+
+This sequencing did not matter much before when we only supported
+the normal bring-up of VFs.
+
+Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 91b9be487001d344a39c453ade6cdbd125e06208)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_sriov.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_sriov.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_sriov.c	2020-02-06 16:23:18.878484072 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_sriov.c	2020-02-06 16:23:19.013482833 +0100
+@@ -671,6 +671,11 @@
+ {
+ 	int rc;
+ 
++	/* Register buffers for VFs */
++	rc = bnxt_hwrm_func_buf_rgtr(bp);
++	if (rc)
++		return rc;
++
+ 	/* Reserve resources for VFs */
+ 	rc = bnxt_func_cfg(bp, *num_vfs);
+ 	if (rc != *num_vfs) {
+@@ -684,11 +689,6 @@
+ 		*num_vfs = rc;
+ 	}
+ 
+-	/* Register buffers for VFs */
+-	rc = bnxt_hwrm_func_buf_rgtr(bp);
+-	if (rc)
+-		return rc;
+-
+ 	bnxt_ulp_sriov_cfg(bp, *num_vfs);
+ 	return 0;
+ }

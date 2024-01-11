@@ -1,0 +1,75 @@
+From 7df147aa7b593a55576767db4c79d78340d023d5 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:25 -0400
+Subject: [PATCH 11/96] [netdrv] bnxt_en: Fix firmware signaled resource change
+ logic in open
+
+Message-id: <8409cf4642a734f8fd0a2bb94d320794dd5c9a1d.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276429
+O-Subject: [RHEL-8.2 PATCH 03/78] bnxt_en: Fix firmware signaled resource change logic in open.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+When the driver detects that resources have changed during open, it
+should reset the rx and tx rings to 0.  This will properly setup the
+init sequence to initialize the default rings again.  We also need
+to signal the RDMA driver to stop and clear its interrupts.  We then
+call the RoCE driver to restart if a new set of default rings is
+successfully reserved.
+
+Fixes: 25e1acd6b92b ("bnxt_en: Notify firmware about IF state changes.")
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 6b95c3e9697254dab0c8eafc6ab9d5e10d2eca4e)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.026546968 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.151545820 +0100
+@@ -8155,6 +8155,8 @@
+ 		hw_resc->resv_rx_rings = 0;
+ 		hw_resc->resv_hw_ring_grps = 0;
+ 		hw_resc->resv_vnics = 0;
++		bp->tx_nr_rings = 0;
++		bp->rx_nr_rings = 0;
+ 	}
+ 	return rc;
+ }
+@@ -10409,20 +10411,25 @@
+ 	if (bp->tx_nr_rings)
+ 		return 0;
+ 
++	bnxt_ulp_irq_stop(bp);
++	bnxt_clear_int_mode(bp);
+ 	rc = bnxt_set_dflt_rings(bp, true);
+ 	if (rc) {
+ 		netdev_err(bp->dev, "Not enough rings available.\n");
+-		return rc;
++		goto init_dflt_ring_err;
+ 	}
+ 	rc = bnxt_init_int_mode(bp);
+ 	if (rc)
+-		return rc;
++		goto init_dflt_ring_err;
++
+ 	bp->tx_nr_rings_per_tc = bp->tx_nr_rings;
+ 	if (bnxt_rfs_supported(bp) && bnxt_rfs_capable(bp)) {
+ 		bp->flags |= BNXT_FLAG_RFS;
+ 		bp->dev->features |= NETIF_F_NTUPLE;
+ 	}
+-	return 0;
++init_dflt_ring_err:
++	bnxt_ulp_irq_restart(bp, rc);
++	return rc;
+ }
+ 
+ int bnxt_restore_pf_fw_resources(struct bnxt *bp)

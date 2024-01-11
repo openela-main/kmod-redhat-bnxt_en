@@ -1,0 +1,49 @@
+From 1194d1ea18ead0d3eec03bfeefa88b5a9b4702bc Mon Sep 17 00:00:00 2001
+From: Petr Oros <poros@redhat.com>
+Date: Thu, 5 Sep 2019 10:01:01 -0400
+Subject: [PATCH 05/96] [netdrv] bnxt: set devlink port attrs properly
+
+Message-id: <a3e8d522635a4fb639910970dcff2a4aee7b8b74.1567595345.git.poros@redhat.com>
+Patchwork-id: 270939
+O-Subject: [RHEL8.2 net PATCH 05/15] bnxt: set devlink port attrs properly
+Bugzilla: 1737133
+RH-Acked-by: Jonathan Toppins <jtoppins@redhat.com>
+RH-Acked-by: Neil Horman <nhorman@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Ivan Vecera <ivecera@redhat.com>
+
+Bugzilla: http://bugzilla.redhat.com/show_bug.cgi?id=1737133
+
+Upstream commit(s):
+commit a0e18132ec51301414a5c92e6c258c2e62fdf08f
+Author: Jiri Pirko <jiri@mellanox.com>
+Date:   Sun Mar 24 11:14:27 2019 +0100
+
+    bnxt: set devlink port attrs properly
+
+    Set the attrs properly so delink has enough info to generate physical
+    port names.
+
+    Signed-off-by: Jiri Pirko <jiri@mellanox.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+
+Signed-off-by: Petr Oros <poros@redhat.com>
+Signed-off-by: Timothy Redaelli <tredaelli@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.413552595 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.535551475 +0100
+@@ -229,6 +229,8 @@
+ 		goto err_dl_unreg;
+ 	}
+ 
++	devlink_port_attrs_set(&bp->dl_port, DEVLINK_PORT_FLAVOUR_PHYSICAL,
++			       bp->pf.port_id, false, 0);
+ 	rc = devlink_port_register(dl, &bp->dl_port, bp->pf.port_id);
+ 	if (rc) {
+ 		netdev_err(bp->dev, "devlink_port_register failed");

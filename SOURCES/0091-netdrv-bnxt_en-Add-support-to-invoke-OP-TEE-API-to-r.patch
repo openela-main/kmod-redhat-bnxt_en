@@ -1,0 +1,77 @@
+From 3f0777c62d6df5c01697a0061aaeba3507d356b1 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Fri, 6 Dec 2019 20:12:47 -0500
+Subject: [PATCH 91/96] [netdrv] bnxt_en: Add support to invoke OP-TEE API to
+ reset firmware
+
+Message-id: <f1037e6e271650f2cc6821105fe9325d079d47f3.1575651772.git.jtoppins@redhat.com>
+Patchwork-id: 291374
+O-Subject: [PATCH rhel8 07/13] bnxt_en: Add support to invoke OP-TEE API to reset firmware
+Bugzilla: 1773724
+RH-Acked-by: Steve Best <sbest@redhat.com>
+RH-Acked-by: David Arcari <darcari@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+
+In error recovery process when firmware indicates that it is
+completely down, initiate a firmware reset by calling OP-TEE API.
+
+Cc: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Signed-off-by: Sheetal Tigadoli <sheetal.tigadoli@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit e07ab2021eb6b7123ec66ae1dc019afae566a56c)
+Bugzilla: 1773724
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=25154853
+Tested: simple boot test
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 13 +++++++++++--
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h |  3 +++
+ 2 files changed, 14 insertions(+), 2 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:22.451451275 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:22.576450128 +0100
+@@ -10587,14 +10587,23 @@
+ static void bnxt_reset_all(struct bnxt *bp)
+ {
+ 	struct bnxt_fw_health *fw_health = bp->fw_health;
+-	int i;
++	int i, rc;
++
++	if (bp->fw_cap & BNXT_FW_CAP_ERR_RECOVER_RELOAD) {
++#ifdef CONFIG_TEE_BNXT_FW
++		rc = tee_bnxt_fw_load();
++		if (rc)
++			netdev_err(bp->dev, "Unable to reset FW rc=%d\n", rc);
++		bp->fw_reset_timestamp = jiffies;
++#endif
++		return;
++	}
+ 
+ 	if (fw_health->flags & ERROR_RECOVERY_QCFG_RESP_FLAGS_HOST) {
+ 		for (i = 0; i < fw_health->fw_reset_seq_cnt; i++)
+ 			bnxt_fw_reset_writel(bp, i);
+ 	} else if (fw_health->flags & ERROR_RECOVERY_QCFG_RESP_FLAGS_CO_CPU) {
+ 		struct hwrm_fw_reset_input req = {0};
+-		int rc;
+ 
+ 		bnxt_hwrm_cmd_hdr_init(bp, &req, HWRM_FW_RESET, -1, -1);
+ 		req.resp_addr = cpu_to_le64(bp->hwrm_cmd_kong_resp_dma_addr);
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:21.672458426 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:22.576450128 +0100
+@@ -25,6 +25,9 @@
+ #include <net/dst_metadata.h>
+ #include <net/xdp.h>
+ #include <linux/net_dim.h>
++#ifdef CONFIG_TEE_BNXT_FW
++#include <linux/firmware/broadcom/tee_bnxt_fw.h>
++#endif
+ 
+ struct page_pool;
+ 

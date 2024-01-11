@@ -1,0 +1,88 @@
+From a63a2a674ca076e657998c0bf05c4ce52f3df200 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:50 -0400
+Subject: [PATCH 35/96] [netdrv] bnxt_en: Improve RX doorbell sequence
+
+Message-id: <adc76103ee35a7bc5d42710a8ec6919b92b78f11.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276454
+O-Subject: [RHEL-8.2 PATCH 28/78] bnxt_en: Improve RX doorbell sequence.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+When both RX buffers and RX aggregation buffers have to be
+replenished at the end of NAPI, post the RX aggregation buffers first
+before RX buffers.  Otherwise, we may run into a situation where
+there are only RX buffers without RX aggregation buffers for a split
+second.  This will cause the hardware to abort the RX packet and
+report buffer errors, which will cause unnecessary cleanup by the
+driver.
+
+Ringing the Aggregation ring doorbell first before the RX ring doorbell
+will prevent some of these buffer errors.  Use the same sequence during
+ring initialization as well.
+
+Fixes: 697197e5a173 ("bnxt_en: Re-structure doorbells.")
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit e8f267b063208372f7a329c6d5288d58944d873c)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 10 +++++++---
+ 1 file changed, 7 insertions(+), 3 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:14.964520000 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:15.092518825 +0100
+@@ -2023,9 +2023,9 @@
+ 	if (bnapi->events & BNXT_RX_EVENT) {
+ 		struct bnxt_rx_ring_info *rxr = bnapi->rx_ring;
+ 
+-		bnxt_db_write(bp, &rxr->rx_db, rxr->rx_prod);
+ 		if (bnapi->events & BNXT_AGG_EVENT)
+ 			bnxt_db_write(bp, &rxr->rx_agg_db, rxr->rx_agg_prod);
++		bnxt_db_write(bp, &rxr->rx_db, rxr->rx_prod);
+ 	}
+ 	bnapi->events = 0;
+ }
+@@ -5069,6 +5069,7 @@
+ 
+ static int bnxt_hwrm_ring_alloc(struct bnxt *bp)
+ {
++	bool agg_rings = !!(bp->flags & BNXT_FLAG_AGG_RINGS);
+ 	int i, rc = 0;
+ 	u32 type;
+ 
+@@ -5144,7 +5145,9 @@
+ 		if (rc)
+ 			goto err_out;
+ 		bnxt_set_db(bp, &rxr->rx_db, type, map_idx, ring->fw_ring_id);
+-		bnxt_db_write(bp, &rxr->rx_db, rxr->rx_prod);
++		/* If we have agg rings, post agg buffers first. */
++		if (!agg_rings)
++			bnxt_db_write(bp, &rxr->rx_db, rxr->rx_prod);
+ 		bp->grp_info[map_idx].rx_fw_ring_id = ring->fw_ring_id;
+ 		if (bp->flags & BNXT_FLAG_CHIP_P5) {
+ 			struct bnxt_cp_ring_info *cpr = &bnapi->cp_ring;
+@@ -5163,7 +5166,7 @@
+ 		}
+ 	}
+ 
+-	if (bp->flags & BNXT_FLAG_AGG_RINGS) {
++	if (agg_rings) {
+ 		type = HWRM_RING_ALLOC_AGG;
+ 		for (i = 0; i < bp->rx_nr_rings; i++) {
+ 			struct bnxt_rx_ring_info *rxr = &bp->rx_ring[i];
+@@ -5179,6 +5182,7 @@
+ 			bnxt_set_db(bp, &rxr->rx_agg_db, type, map_idx,
+ 				    ring->fw_ring_id);
+ 			bnxt_db_write(bp, &rxr->rx_agg_db, rxr->rx_agg_prod);
++			bnxt_db_write(bp, &rxr->rx_db, rxr->rx_prod);
+ 			bp->grp_info[grp_idx].agg_fw_ring_id = ring->fw_ring_id;
+ 		}
+ 	}

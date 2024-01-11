@@ -1,0 +1,119 @@
+From 2ebefa82c1a4132e47d8e9ebaa8c1ba1647c3a7f Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:11 -0400
+Subject: [PATCH 56/96] [netdrv] bnxt: no need to check return value of
+ debugfs_create functions
+
+Message-id: <85557a81f2bb78d291f389dfdd9b0175b2d8f3e2.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276475
+O-Subject: [RHEL-8.2 PATCH 49/78] bnxt: no need to check return value of debugfs_create functions
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+When calling debugfs functions, there is no need to ever check the
+return value.  The function can work or not, but the code logic should
+never do something different based on this.
+
+This cleans up a lot of unneeded code and logic around the debugfs
+files, making all of this much simpler and easier to understand.
+
+Cc: Michael Chan <michael.chan@broadcom.com>
+Cc: "David S. Miller" <davem@davemloft.net>
+Cc: netdev@vger.kernel.org
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 3a131e85043cf538d5e70c0f23f9d69a4dd642b9)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h         |  1 -
+ drivers/net/ethernet/broadcom/bnxt/bnxt_debugfs.c | 39 +++++++----------------
+ 2 files changed, 11 insertions(+), 29 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:17.543496327 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:17.788494078 +0100
+@@ -1724,7 +1724,6 @@
+ 	u8			switch_id[8];
+ 	struct bnxt_tc_info	*tc_info;
+ 	struct dentry		*debugfs_pdev;
+-	struct dentry		*debugfs_dim;
+ 	struct device		*hwmon_dev;
+ };
+ 
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_debugfs.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_debugfs.c	2020-02-06 16:22:54.954703674 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_debugfs.c	2020-02-06 16:23:17.788494078 +0100
+@@ -61,45 +61,30 @@
+ 	.read = debugfs_dim_read,
+ };
+ 
+-static struct dentry *debugfs_dim_ring_init(struct net_dim *dim, int ring_idx,
+-					    struct dentry *dd)
++static void debugfs_dim_ring_init(struct net_dim *dim, int ring_idx,
++				  struct dentry *dd)
+ {
+ 	static char qname[16];
+ 
+ 	snprintf(qname, 10, "%d", ring_idx);
+-	return debugfs_create_file(qname, 0600, dd,
+-				   dim, &debugfs_dim_fops);
++	debugfs_create_file(qname, 0600, dd, dim, &debugfs_dim_fops);
+ }
+ 
+ void bnxt_debug_dev_init(struct bnxt *bp)
+ {
+ 	const char *pname = pci_name(bp->pdev);
+-	struct dentry *pdevf;
++	struct dentry *dir;
+ 	int i;
+ 
+ 	bp->debugfs_pdev = debugfs_create_dir(pname, bnxt_debug_mnt);
+-	if (bp->debugfs_pdev) {
+-		pdevf = debugfs_create_dir("dim", bp->debugfs_pdev);
+-		if (!pdevf) {
+-			pr_err("failed to create debugfs entry %s/dim\n",
+-			       pname);
+-			return;
+-		}
+-		bp->debugfs_dim = pdevf;
+-		/* create files for each rx ring */
+-		for (i = 0; i < bp->cp_nr_rings; i++) {
+-			struct bnxt_cp_ring_info *cpr = &bp->bnapi[i]->cp_ring;
+-
+-			if (cpr && bp->bnapi[i]->rx_ring) {
+-				pdevf = debugfs_dim_ring_init(&cpr->dim, i,
+-							      bp->debugfs_dim);
+-				if (!pdevf)
+-					pr_err("failed to create debugfs entry %s/dim/%d\n",
+-					       pname, i);
+-			}
+-		}
+-	} else {
+-		pr_err("failed to create debugfs entry %s\n", pname);
++	dir = debugfs_create_dir("dim", bp->debugfs_pdev);
++
++	/* create files for each rx ring */
++	for (i = 0; i < bp->cp_nr_rings; i++) {
++		struct bnxt_cp_ring_info *cpr = &bp->bnapi[i]->cp_ring;
++
++		if (cpr && bp->bnapi[i]->rx_ring)
++			debugfs_dim_ring_init(&cpr->dim, i, dir);
+ 	}
+ }
+ 
+@@ -114,8 +99,6 @@
+ void bnxt_debug_init(void)
+ {
+ 	bnxt_debug_mnt = debugfs_create_dir("bnxt_en", NULL);
+-	if (!bnxt_debug_mnt)
+-		pr_err("failed to init bnxt_en debugfs\n");
+ }
+ 
+ void bnxt_debug_exit(void)

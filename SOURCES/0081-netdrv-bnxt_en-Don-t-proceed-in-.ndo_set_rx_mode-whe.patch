@@ -1,0 +1,56 @@
+From 5de2d4f892cac111195aeddc741e2ef199e554c2 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:36 -0400
+Subject: [PATCH 81/96] [netdrv] bnxt_en: Don't proceed in .ndo_set_rx_mode()
+ when device is not in open state
+
+Message-id: <622e3c11be99362a153efe46b13f7fc1b0182027.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276497
+O-Subject: [RHEL-8.2 PATCH 74/78] bnxt_en: Don't proceed in .ndo_set_rx_mode() when device is not in open state.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Check the BNXT_STATE_OPEN flag instead of netif_running() in
+bnxt_set_rx_mode().  If the driver is going through any reset, such
+as firmware reset or even TX timeout, it may not be ready to set the RX
+mode and may crash.  The new rx mode settings will be picked up when
+the device is opened again later.
+
+Fixes: 230d1f0de754 ("bnxt_en: Handle firmware reset.")
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 268d0895f1b9690755d91b6ced60c9d8d17a7567)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:21.151463208 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:21.286461969 +0100
+@@ -9562,14 +9562,16 @@
+ static void bnxt_set_rx_mode(struct net_device *dev)
+ {
+ 	struct bnxt *bp = netdev_priv(dev);
+-	struct bnxt_vnic_info *vnic = &bp->vnic_info[0];
+-	u32 mask = vnic->rx_mask;
++	struct bnxt_vnic_info *vnic;
+ 	bool mc_update = false;
+ 	bool uc_update;
++	u32 mask;
+ 
+-	if (!netif_running(dev))
++	if (!test_bit(BNXT_STATE_OPEN, &bp->state))
+ 		return;
+ 
++	vnic = &bp->vnic_info[0];
++	mask = vnic->rx_mask;
+ 	mask &= ~(CFA_L2_SET_RX_MASK_REQ_MASK_PROMISCUOUS |
+ 		  CFA_L2_SET_RX_MASK_REQ_MASK_MCAST |
+ 		  CFA_L2_SET_RX_MASK_REQ_MASK_ALL_MCAST |

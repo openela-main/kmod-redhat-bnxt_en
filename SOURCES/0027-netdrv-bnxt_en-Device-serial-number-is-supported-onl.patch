@@ -1,0 +1,51 @@
+From 620cc08cb52bfe54049e69c56c7d75ba7b67ce26 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:42 -0400
+Subject: [PATCH 27/96] [netdrv] bnxt_en: Device serial number is supported
+ only for PFs
+
+Message-id: <42a558146846b42a704f96b91b13e688f5533fb9.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276442
+O-Subject: [RHEL-8.2 PATCH 20/78] bnxt_en: Device serial number is supported only for PFs.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Don't read DSN on VFs that do not have the PCI capability.
+
+Fixes: 03213a996531 ("bnxt: move bp->switch_id initialization to PF probe")
+Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 2e9217d1e8b72dde2c7e3e2338cc1830f68cb58d)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:13.805530638 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:13.941529390 +0100
+@@ -10744,11 +10744,12 @@
+ 		goto init_err_pci_clean;
+ 	}
+ 
+-	/* Read the adapter's DSN to use as the eswitch switch_id */
+-	rc = bnxt_pcie_dsn_get(bp, bp->switch_id);
+-	if (rc)
+-		goto init_err_pci_clean;
+-
++	if (BNXT_PF(bp)) {
++		/* Read the adapter's DSN to use as the eswitch switch_id */
++		rc = bnxt_pcie_dsn_get(bp, bp->switch_id);
++		if (rc)
++			goto init_err_pci_clean;
++	}
+ 	bnxt_hwrm_func_qcfg(bp);
+ 	bnxt_hwrm_vnic_qcaps(bp);
+ 	bnxt_hwrm_port_led_qcaps(bp);

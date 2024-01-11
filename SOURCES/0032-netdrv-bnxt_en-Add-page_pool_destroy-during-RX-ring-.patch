@@ -1,0 +1,72 @@
+From da53b34b995100f84ac925275fe36a252166ec52 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:47 -0400
+Subject: [PATCH 32/96] [netdrv] bnxt_en: Add page_pool_destroy() during RX
+ ring cleanup
+
+Message-id: <a78187e9efd36d2b924eccd83bd157cea3d448cd.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276448
+O-Subject: [RHEL-8.2 PATCH 25/78] bnxt_en: Add page_pool_destroy() during RX ring cleanup.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+Add page_pool_destroy() in bnxt_free_rx_rings() during normal RX ring
+cleanup, as Ilias has informed us that the following commit has been
+merged:
+
+1da4bbeffe41 ("net: core: page_pool: add user refcnt and reintroduce page_pool_destroy")
+
+The special error handling code to call page_pool_free() can now be
+removed.  bnxt_free_rx_rings() will always be called during normal
+shutdown or any error paths.
+
+Fixes: 322b87ca55f2 ("bnxt_en: add page_pool support")
+Cc: Ilias Apalodimas <ilias.apalodimas@linaro.org>
+Cc: Andy Gospodarek <gospo@broadcom.com>
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Acked-by: Andy Gospodarek <gospo@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 12479f627f7c2017e6fcd50b56c2537592674c50)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 8 ++------
+ 1 file changed, 2 insertions(+), 6 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:14.547523827 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:14.697522450 +0100
+@@ -2503,6 +2503,7 @@
+ 		if (xdp_rxq_info_is_reg(&rxr->xdp_rxq))
+ 			xdp_rxq_info_unreg(&rxr->xdp_rxq);
+ 
++		page_pool_destroy(rxr->page_pool);
+ 		rxr->page_pool = NULL;
+ 
+ 		kfree(rxr->rx_tpa);
+@@ -2563,19 +2564,14 @@
+ 			return rc;
+ 
+ 		rc = xdp_rxq_info_reg(&rxr->xdp_rxq, bp->dev, i);
+-		if (rc < 0) {
+-			page_pool_free(rxr->page_pool);
+-			rxr->page_pool = NULL;
++		if (rc < 0)
+ 			return rc;
+-		}
+ 
+ 		rc = xdp_rxq_info_reg_mem_model(&rxr->xdp_rxq,
+ 						MEM_TYPE_PAGE_POOL,
+ 						rxr->page_pool);
+ 		if (rc) {
+ 			xdp_rxq_info_unreg(&rxr->xdp_rxq);
+-			page_pool_free(rxr->page_pool);
+-			rxr->page_pool = NULL;
+ 			return rc;
+ 		}
+ 

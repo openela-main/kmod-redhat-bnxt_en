@@ -1,0 +1,111 @@
+From 2c4d992b57a4b6709fcda6fd12b1f53c19a719cc Mon Sep 17 00:00:00 2001
+From: Petr Oros <poros@redhat.com>
+Date: Thu, 5 Sep 2019 10:00:58 -0400
+Subject: [PATCH 03/96] [netdrv] revert "devlink: Add a generic wake_on_lan
+ port parameter"
+
+Message-id: <e21412cfa07f102b8c9b95a10d802d6abdd9b409.1567595345.git.poros@redhat.com>
+Patchwork-id: 270934
+O-Subject: [RHEL8.2 net PATCH 02/15] Revert "devlink: Add a generic wake_on_lan port parameter"
+Bugzilla: 1737133
+RH-Acked-by: Jonathan Toppins <jtoppins@redhat.com>
+RH-Acked-by: Neil Horman <nhorman@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Ivan Vecera <ivecera@redhat.com>
+
+Bugzilla: http://bugzilla.redhat.com/show_bug.cgi?id=1737133
+
+Upstream commit(s):
+commit da203dfa89ce83c55b6623f73560ef7ec742aca4
+Author: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+Date:   Mon Feb 11 14:46:17 2019 +0530
+
+    Revert "devlink: Add a generic wake_on_lan port parameter"
+
+    This reverts commit b639583f9e36d044ac1b13090ae812266992cbac.
+
+    As per discussion with Jakub Kicinski and Michal Kubecek,
+    this will be better addressed by soon-too-come ethtool netlink
+    API with additional indication that given configuration request
+    is supposed to be persisted.
+
+    Also, remove the parameter support from bnxt_en driver.
+
+    Cc: Jiri Pirko <jiri@mellanox.com>
+    Cc: Michael Chan <michael.chan@broadcom.com>
+    Cc: Michal Kubecek <mkubecek@suse.cz>
+    Suggested-by: Jakub Kicinski <jakub.kicinski@netronome.com>
+    Signed-off-by: Vasundhara Volam <vasundhara-v.volam@broadcom.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+
+Signed-off-by: Petr Oros <poros@redhat.com>
+Signed-off-by: Timothy Redaelli <tredaelli@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c | 19 +------------------
+ drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.h |  1 -
+ 2 files changed, 1 insertion(+), 19 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.134555156 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.278553834 +0100
+@@ -37,8 +37,6 @@
+ 	 NVM_OFF_MSIX_VEC_PER_PF_MIN, BNXT_NVM_SHARED_CFG, 7},
+ 	{BNXT_DEVLINK_PARAM_ID_GRE_VER_CHECK, NVM_OFF_DIS_GRE_VER_CHECK,
+ 	 BNXT_NVM_SHARED_CFG, 1},
+-
+-	{DEVLINK_PARAM_GENERIC_ID_WOL, NVM_OFF_WOL, BNXT_NVM_PORT_CFG, 1},
+ };
+ 
+ static int bnxt_hwrm_nvm_req(struct bnxt *bp, u32 param_id, void *msg,
+@@ -72,8 +70,7 @@
+ 	bytesize = roundup(nvm_param.num_bits, BITS_PER_BYTE) / BITS_PER_BYTE;
+ 	switch (bytesize) {
+ 	case 1:
+-		if (nvm_param.num_bits == 1 &&
+-		    nvm_param.id != DEVLINK_PARAM_GENERIC_ID_WOL)
++		if (nvm_param.num_bits == 1)
+ 			buf = &val->vbool;
+ 		else
+ 			buf = &val->vu8;
+@@ -167,17 +164,6 @@
+ 	return 0;
+ }
+ 
+-static int bnxt_dl_wol_validate(struct devlink *dl, u32 id,
+-				union devlink_param_value val,
+-				struct netlink_ext_ack *extack)
+-{
+-	if (val.vu8 && val.vu8 != DEVLINK_PARAM_WAKE_MAGIC) {
+-		NL_SET_ERR_MSG_MOD(extack, "WOL type is not supported");
+-		return -EINVAL;
+-	}
+-	return 0;
+-}
+-
+ static const struct devlink_param bnxt_dl_params[] = {
+ 	DEVLINK_PARAM_GENERIC(ENABLE_SRIOV,
+ 			      BIT(DEVLINK_PARAM_CMODE_PERMANENT),
+@@ -203,9 +189,6 @@
+ };
+ 
+ static const struct devlink_param bnxt_dl_port_params[] = {
+-	DEVLINK_PARAM_GENERIC(WOL, BIT(DEVLINK_PARAM_CMODE_PERMANENT),
+-			      bnxt_dl_nvm_param_get, bnxt_dl_nvm_param_set,
+-			      bnxt_dl_wol_validate),
+ };
+ 
+ int bnxt_dl_register(struct bnxt *bp)
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.h	2020-02-06 16:23:11.134555156 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.h	2020-02-06 16:23:11.278553834 +0100
+@@ -35,7 +35,6 @@
+ 
+ #define NVM_OFF_MSIX_VEC_PER_PF_MAX	108
+ #define NVM_OFF_MSIX_VEC_PER_PF_MIN	114
+-#define NVM_OFF_WOL			152
+ #define NVM_OFF_IGNORE_ARI		164
+ #define NVM_OFF_DIS_GRE_VER_CHECK	171
+ #define NVM_OFF_ENABLE_SRIOV		401

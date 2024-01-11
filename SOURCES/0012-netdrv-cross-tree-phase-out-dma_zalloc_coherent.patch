@@ -1,0 +1,108 @@
+From 10271656a2cca09a8fc023e78559156fb0659583 Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:22:26 -0400
+Subject: [PATCH 12/96] [netdrv] cross-tree: phase out dma_zalloc_coherent()
+
+Message-id: <239a788461171e2df3655e35be52674e381012f6.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276430
+O-Subject: [RHEL-8.2 PATCH 04/78] cross-tree: phase out dma_zalloc_coherent()
+Bugzilla: 1724766
+RH-Acked-by: Don Dutile <ddutile@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+We already need to zero out memory for dma_alloc_coherent(), as such
+using dma_zalloc_coherent() is superflous. Phase it out.
+
+This change was generated with the following Coccinelle SmPL patch:
+
+@ replace_dma_zalloc_coherent @
+expression dev, size, data, handle, flags;
+@@
+
+-dma_zalloc_coherent(dev, size, handle, flags)
++dma_alloc_coherent(dev, size, handle, flags)
+
+Suggested-by: Christoph Hellwig <hch@lst.de>
+Signed-off-by: Luis Chamberlain <mcgrof@kernel.org>
+[hch: re-ran the script on the latest tree]
+Signed-off-by: Christoph Hellwig <hch@lst.de>
+(cherry picked from commit 750afb08ca71310fcf0c4e2cb1565c63b8235b60)
+
+Note: only applied bnxt_en/bnxt_re applicable hunks.
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c         | 16 ++++++++--------
+ drivers/net/ethernet/broadcom/bnxt/bnxt_dcb.c     |  4 ++--
+ drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c |  4 ++--
+ 3 files changed, 12 insertions(+), 12 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.151545820 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:12.276544673 +0100
+@@ -3476,10 +3476,10 @@
+ 			goto alloc_tx_ext_stats;
+ 
+ 		bp->hw_rx_port_stats_ext =
+-			dma_zalloc_coherent(&pdev->dev,
+-					    sizeof(struct rx_port_stats_ext),
+-					    &bp->hw_rx_port_stats_ext_map,
+-					    GFP_KERNEL);
++			dma_alloc_coherent(&pdev->dev,
++					   sizeof(struct rx_port_stats_ext),
++					   &bp->hw_rx_port_stats_ext_map,
++					   GFP_KERNEL);
+ 		if (!bp->hw_rx_port_stats_ext)
+ 			return 0;
+ 
+@@ -3489,10 +3489,10 @@
+ 
+ 		if (bp->hwrm_spec_code >= 0x10902) {
+ 			bp->hw_tx_port_stats_ext =
+-				dma_zalloc_coherent(&pdev->dev,
+-					    sizeof(struct tx_port_stats_ext),
+-					    &bp->hw_tx_port_stats_ext_map,
+-					    GFP_KERNEL);
++				dma_alloc_coherent(&pdev->dev,
++						   sizeof(struct tx_port_stats_ext),
++						   &bp->hw_tx_port_stats_ext_map,
++						   GFP_KERNEL);
+ 		}
+ 		bp->flags |= BNXT_FLAG_PORT_STATS_EXT;
+ 	}
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_dcb.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_dcb.c	2020-02-06 16:22:57.132683682 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_dcb.c	2020-02-06 16:23:12.277544664 +0100
+@@ -316,8 +316,8 @@
+ 
+ 	n = IEEE_8021QAZ_MAX_TCS;
+ 	data_len = sizeof(*data) + sizeof(*fw_app) * n;
+-	data = dma_zalloc_coherent(&bp->pdev->dev, data_len, &mapping,
+-				   GFP_KERNEL);
++	data = dma_alloc_coherent(&bp->pdev->dev, data_len, &mapping,
++				  GFP_KERNEL);
+ 	if (!data)
+ 		return -ENOMEM;
+ 
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.781549217 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:12.277544664 +0100
+@@ -86,8 +86,8 @@
+ 		return -EFAULT;
+ 	}
+ 
+-	data_addr = dma_zalloc_coherent(&bp->pdev->dev, bytesize,
+-					&data_dma_addr, GFP_KERNEL);
++	data_addr = dma_alloc_coherent(&bp->pdev->dev, bytesize,
++				       &data_dma_addr, GFP_KERNEL);
+ 	if (!data_addr)
+ 		return -ENOMEM;
+ 

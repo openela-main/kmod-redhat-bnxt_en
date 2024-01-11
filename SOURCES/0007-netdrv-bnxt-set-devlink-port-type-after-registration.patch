@@ -1,0 +1,55 @@
+From ca0762826bab5d15667f3d513d4a1f2ee9d1a72c Mon Sep 17 00:00:00 2001
+From: Petr Oros <poros@redhat.com>
+Date: Thu, 5 Sep 2019 10:01:03 -0400
+Subject: [PATCH 07/96] [netdrv] bnxt: set devlink port type after registration
+
+Message-id: <827b45ca798f38bebb40d7a4adf079df0506cb08.1567595345.git.poros@redhat.com>
+Patchwork-id: 270941
+O-Subject: [RHEL8.2 net PATCH 07/15] bnxt: set devlink port type after registration
+Bugzilla: 1737133
+RH-Acked-by: Jonathan Toppins <jtoppins@redhat.com>
+RH-Acked-by: Neil Horman <nhorman@redhat.com>
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Ivan Vecera <ivecera@redhat.com>
+
+Bugzilla: http://bugzilla.redhat.com/show_bug.cgi?id=1737133
+
+Upstream commit(s):
+commit d0d54e8c359399a8d07656779d5b6ddae68ef3c7
+Author: Jiri Pirko <jiri@mellanox.com>
+Date:   Sun Mar 24 11:14:35 2019 +0100
+
+    bnxt: set devlink port type after registration
+
+    Move the type set of devlink port after it is registered.
+
+    Signed-off-by: Jiri Pirko <jiri@mellanox.com>
+    Signed-off-by: David S. Miller <davem@davemloft.net>
+
+Signed-off-by: Petr Oros <poros@redhat.com>
+Signed-off-by: Timothy Redaelli <tredaelli@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.657550355 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt_devlink.c	2020-02-06 16:23:11.781549217 +0100
+@@ -229,7 +229,6 @@
+ 		goto err_dl_unreg;
+ 	}
+ 
+-	devlink_port_type_eth_set(&bp->dl_port, bp->dev);
+ 	devlink_port_attrs_set(&bp->dl_port, DEVLINK_PORT_FLAVOUR_PHYSICAL,
+ 			       bp->pf.port_id, false, 0);
+ 	rc = devlink_port_register(dl, &bp->dl_port, bp->pf.port_id);
+@@ -237,6 +236,7 @@
+ 		netdev_err(bp->dev, "devlink_port_register failed");
+ 		goto err_dl_param_unreg;
+ 	}
++	devlink_port_type_eth_set(&bp->dl_port, bp->dev);
+ 
+ 	rc = devlink_port_params_register(&bp->dl_port, bnxt_dl_port_params,
+ 					  ARRAY_SIZE(bnxt_dl_port_params));

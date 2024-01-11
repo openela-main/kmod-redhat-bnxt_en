@@ -1,0 +1,83 @@
+From 4e9c35933c1034517f8d1ea4db0d84e67bf9fb6a Mon Sep 17 00:00:00 2001
+From: Jonathan Toppins <jtoppins@redhat.com>
+Date: Wed, 2 Oct 2019 18:23:06 -0400
+Subject: [PATCH 51/96] [netdrv] bnxt_en: Allocate the larger per-ring
+ statistics block for 57500 chips
+
+Message-id: <b7e6993b0709ea1f6724ddca0c365262b5c2445f.1570027456.git.jtoppins@redhat.com>
+Patchwork-id: 276465
+O-Subject: [RHEL-8.2 PATCH 44/78] bnxt_en: Allocate the larger per-ring statistics block for 57500 chips.
+Bugzilla: 1724766
+RH-Acked-by: John Linville <linville@redhat.com>
+RH-Acked-by: Jarod Wilson <jarod@redhat.com>
+
+The new TPA implemantation has additional TPA counters that extend the
+per-ring statistics block.  Allocate the proper size accordingly.
+
+Signed-off-by: Michael Chan <michael.chan@broadcom.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 4e7485066373f3e9a87fa063b65d0838990753e5)
+Bugzilla: 1724766
+Build Info: https://brewweb.engineering.redhat.com/brew/taskinfo?taskID=23809532
+Tested: build, boot, basic ping
+Signed-off-by: Jonathan Toppins <jtoppins@redhat.com>
+Signed-off-by: Bruno Meneguele <bmeneg@redhat.com>
+---
+ drivers/net/ethernet/broadcom/bnxt/bnxt.c | 10 ++++++++--
+ drivers/net/ethernet/broadcom/bnxt/bnxt.h |  1 +
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.c
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:16.886502357 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.c	2020-02-06 16:23:17.147499962 +0100
+@@ -3640,7 +3640,7 @@
+ 	if (!bp->bnapi)
+ 		return;
+ 
+-	size = sizeof(struct ctx_hw_stats);
++	size = bp->hw_ring_stats_size;
+ 
+ 	for (i = 0; i < bp->cp_nr_rings; i++) {
+ 		struct bnxt_napi *bnapi = bp->bnapi[i];
+@@ -3659,7 +3659,7 @@
+ 	u32 size, i;
+ 	struct pci_dev *pdev = bp->pdev;
+ 
+-	size = sizeof(struct ctx_hw_stats);
++	size = bp->hw_ring_stats_size;
+ 
+ 	for (i = 0; i < bp->cp_nr_rings; i++) {
+ 		struct bnxt_napi *bnapi = bp->bnapi[i];
+@@ -4994,6 +4994,11 @@
+ 		    VNIC_QCAPS_RESP_FLAGS_ROCE_MIRRORING_CAPABLE_VNIC_CAP)
+ 			bp->flags |= BNXT_FLAG_ROCE_MIRROR_CAP;
+ 		bp->max_tpa_v2 = le16_to_cpu(resp->max_aggs_supported);
++		if (bp->max_tpa_v2)
++			bp->hw_ring_stats_size =
++				sizeof(struct ctx_hw_stats_ext);
++		else
++			bp->hw_ring_stats_size = sizeof(struct ctx_hw_stats);
+ 	}
+ 	mutex_unlock(&bp->hwrm_cmd_lock);
+ 	return rc;
+@@ -6195,6 +6200,7 @@
+ 
+ 	bnxt_hwrm_cmd_hdr_init(bp, &req, HWRM_STAT_CTX_ALLOC, -1, -1);
+ 
++	req.stats_dma_length = cpu_to_le16(bp->hw_ring_stats_size);
+ 	req.update_period_ms = cpu_to_le32(bp->stats_coal_ticks / 1000);
+ 
+ 	mutex_lock(&bp->hwrm_cmd_lock);
+Index: src/drivers/net/ethernet/broadcom/bnxt/bnxt.h
+===================================================================
+--- src.orig/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:16.750503606 +0100
++++ src/drivers/net/ethernet/broadcom/bnxt/bnxt.h	2020-02-06 16:23:17.148499952 +0100
+@@ -1607,6 +1607,7 @@
+ 	int			hw_port_stats_size;
+ 	u16			fw_rx_stats_ext_size;
+ 	u16			fw_tx_stats_ext_size;
++	u16			hw_ring_stats_size;
+ 	u8			pri2cos[8];
+ 	u8			pri2cos_valid;
+ 
